@@ -1,0 +1,396 @@
+#!/bin/bash
+
+PGM=`basename $0`
+
+RSYNC_OPTIONS="--force -rltWDEgopt"
+
+# List of extra dirs to create under /mnt.
+OPTIONAL_MNT_DIRS="clone mnt sda sdb rpi0 rpi1"
+
+# Where to mount the disk filesystems to be rsynced.
+CLONE=/mnt/clone
+
+CLONE_LOG=/var/log/$PGM.log
+
+HOSTNAME=`hostname`
+
+SRC_BOOT_PARTITION_TYPE=`parted /dev/mmcblk0 -ms p | grep "^1" | cut -f 5 -d:`
+SRC_ROOT_PARTITION_TYPE=`parted /dev/mmcblk0 -ms p | grep "^2" | cut -f 5 -d:`
+
+if [ `id -u` != 0 ]
+then
+    echo -e "$PGM needs to be run as root.\n"
+    exit 1
+fi
+
+usage()
+	{
+	echo ""
+	echo "usage: $PGM sdN {-f|--force-initialize} {-v|--verbose}"
+	echo "    Example:  $PGM sda"
+	echo "    -v - list all files as they are copied."
+	echo "    -f - force initialize the destination partitions"
+	echo ""
+	echo "    Clone (rsync) a running Raspberry Pi file system to a destination"
+	echo "    SD card 'sdN' plugged into a Pi USB port (via a USB card reader)."
+	echo "    $PGM can clone the running system to a new SD card or can"
+	echo "    incrementally rsync to existing backup Raspberry Pi SD cards."
+	echo ""
+	echo "    If the destination SD card has an existing $SRC_BOOT_PARTITION_TYPE partition 1 and a"
+	echo "    $SRC_ROOT_PARTITION_TYPE partition 2, $PGM assumes (unless using the -f option)"
+	echo "    that the SD card is an existing backup with the partitions"
+	echo "    properly sized and set up for a Raspberry Pi.  All that is needed"
+	echo "    is to mount the partitions and rsync them to the running system."
+	echo ""
+	echo "    If these partitions are not found (or -f), then $PGM will ask"
+	echo "    if it is OK to initialize the destination SD card partitions."
+	echo "    This is done by a partial 'dd' from the running booted device"
+	echo "    /dev/mmcblk0 to the destination SD card /dev/sdN followed by a"
+	echo "    fdisk resize and mkfs.ext4 of /dev/sdN partition 2."
+	echo "    This creates a completed $SRC_BOOT_PARTITION_TYPE partition 1 containing all boot"
+	echo "    files and an empty but properly sized partition 2 rootfs."
+	echo "    The SD card  partitions are then mounted and rsynced to the"
+	echo "    running system."
+	echo ""
+	echo "    The SD card destination partitions will be mounted on $CLONE."
+	echo "    A log will be written to $CLONE_LOG."
+	echo "    Avoid running other disk writing programs when running $PGM."
+	echo ""
+	exit 0
+	}
+
+VERBOSE=off
+
+while [ "$1" ]
+do
+	case "$1" in
+		-v|--verbose)
+			VERBOSE=on
+			RSYNC_OPTIONS=${RSYNC_OPTIONS}v
+			;;
+		-f|--force-initialize)
+			FORCE_INITIALIZE=true
+			;;
+		*)
+			if [ "$DST_DISK" != "" ]
+			then
+				echo "Bad args"
+				usage
+			fi
+			DST_DISK=$1
+			;;
+	esac
+	shift
+done
+
+
+if [ "$DST_DISK" = "" ]
+then
+	usage
+	exit 0
+fi
+
+if ! cat /proc/partitions | grep -q $DST_DISK
+then
+	echo "Destination disk '$DST_DISK' does not exist."
+	echo "Plug the destination SD card into a USB port."
+	echo "If it does not show up  as '$DST_DISK', then do a"
+	echo -e "'cat /proc/partitions' to see where it might be.\n"
+	exit 0
+fi
+
+
+TEST_MOUNTED=`fgrep " $CLONE " /etc/mtab | cut -f 1 -d ' ' `
+if [ "$TEST_MOUNTED" != "" ]
+then
+	echo "This script uses $CLONE for mounting filesystems, but"
+	echo "$CLONE is already mounted with $TEST_MOUNTED."
+	echo -e "Unmount $CLONE before running this script.\n"
+	exit 0
+fi
+
+if [ ! -d $CLONE ]
+then
+	MNT_MOUNT=`fgrep " /mnt " /etc/mtab | cut -f 1 -d ' ' `
+	if [ "$MNT_MOUNT" = "" ]
+	then
+		mkdir $CLONE
+	else
+		echo "$MNT_MOUNT is currently mounted on /mnt."
+		echo -e "Unmount /mnt before running $PGM.\n"
+		exit 0
+	fi
+fi
+
+
+# Borrowed from do_expand_rootfs in raspi-config
+expand_rootfs()
+	{
+	# Get the starting offset of the root partition
+	PART_START=$(parted /dev/mmcblk0 -ms unit s p | grep "^2" | cut -f 2 -d:)
+	[ "$PART_START" ] || return 1
+	# Return value will likely be error for fdisk as it fails to reload the
+	# partition table because the root fs is mounted
+	fdisk /dev/$DST_DISK > /dev/null <<EOF
+p
+d
+2
+n
+p
+2
+$PART_START
+
+p
+w
+q
+EOF
+	}
+
+
+# =========== Disk Setup and Checks ===========
+#
+DST_ROOT_PARTITION=/dev/${DST_DISK}2
+DST_BOOT_PARTITION=/dev/${DST_DISK}1
+
+# Check that none of the destination partitions are busy (mounted).
+#
+DST_ROOT_CURMOUNT=`fgrep "$DST_ROOT_PARTITION " /etc/mtab | cut -f 2 -d ' ' `
+DST_BOOT_CURMOUNT=`fgrep "$DST_BOOT_PARTITION " /etc/mtab | cut -f 2 -d ' ' `
+
+if [ "$DST_ROOT_CURMOUNT" != "" ] || [ "$DST_BOOT_CURMOUNT" != "" ]
+then
+	echo "A destination partition is busy (mounted).  Mount status:"
+	echo "    $DST_ROOT_PARTITION:  $DST_ROOT_CURMOUNT"
+	echo "    $DST_BOOT_PARTITION:  $DST_BOOT_CURMOUNT"
+	echo -e "Aborting!\n"
+	exit 0
+fi
+
+# Check that destination partitions are the right type.
+#
+DST_BOOT_PARTITION_TYPE=`parted /dev/$DST_DISK -ms p \
+		| grep "^1" | cut -f 5 -d:`
+DST_ROOT_PARTITION_TYPE=`parted /dev/$DST_DISK -ms p \
+		| grep "^2" | cut -f 5 -d:`
+
+
+if [ "$DST_BOOT_PARTITION_TYPE" != "$SRC_BOOT_PARTITION_TYPE" ] || \
+   [ "$DST_ROOT_PARTITION_TYPE" != "$SRC_ROOT_PARTITION_TYPE" ] || \
+   [ "$FORCE_INITIALIZE" = "true" ]
+then
+	echo ""
+	if [ "$FORCE_INITIALIZE" = "true" ]
+	then
+		echo "*** Forcing a partition initialization of destination '$DST_DISK' ***"
+	fi
+
+	echo "The existing partitions on destination disk '$DST_DISK' are:"
+#	fdisk -l /dev/$DST_DISK | grep $DST_DISK
+	parted /dev/$DST_DISK unit MB p \
+		| sed "/^Model/d ; /^Sector/d"
+	if [ "$DST_BOOT_PARTITION_TYPE" != "$SRC_BOOT_PARTITION_TYPE" ]
+	then
+		echo -e "  ... Cannot find a destination boot file system of type: $SRC_BOOT_PARTITION_TYPE\n"
+	fi
+	if [ "$DST_ROOT_PARTITION_TYPE" != "$SRC_ROOT_PARTITION_TYPE" ]
+	then
+		echo -e "  ... Cannot find a destination root file system of type: $SRC_ROOT_PARTITION_TYPE\n"
+	fi
+	echo "This script can initialize the destination disk with a partition"
+	echo "structure copied from the currently booted filesytem and then resize"
+	echo "partition 2 (the root filesystem) to use all space on the SD card."
+	echo -n "Do you want to initialize the destination /dev/$DST_DISK? (yes/no): "
+	read resp
+	if [ "$resp" = "y" ] || [ "$resp" = "yes" ]
+	then
+		# Image onto the destination disk a beginning fragment of the
+		# running SD card file structure that spans at least more than
+		# the start of partition 2.
+		#
+		# Calculate the start of partition 2 in MB for the dd.
+		PART2_START=$(parted /dev/mmcblk0 -ms unit MB p | grep "^2" \
+				| cut -f 2 -d: | sed s/MB// | tr "," "." | cut -f 1 -d.)
+		# and add some slop
+		DD_COUNT=`expr $PART2_START + 8`
+
+		echo ""
+		echo "Imaging the partition structure, copying $DD_COUNT megabytes..."
+		dd if=/dev/mmcblk0 of=/dev/$DST_DISK bs=1M count=$DD_COUNT
+
+		# But, though Partion 1 is now imaged, partition 2 is incomplete and
+		# maybe the wrong size for the destination SD card.  So fdisk it to
+		# make it fill the rest of the disk and mkfs it to clean it out.
+		#
+		echo "Sizing partition 2 (root partition) to use all SD card space..."
+		expand_rootfs
+		mkfs.ext4 $DST_ROOT_PARTITION > /dev/null
+
+		echo ""
+		echo "/dev/$DST_DISK is initialized and resized.  Its partitions are:"
+#		fdisk -l /dev/$DST_DISK | grep $DST_DISK
+		parted /dev/$DST_DISK unit MB p \
+			| sed "/^Model/d ; /^Sector/d"
+
+		SRC_ROOT_VOL_NAME=`e2label /dev/mmcblk0p2`
+		echo ""
+		echo "Your booted /dev/mmcblk0p2 rootfs existing label: $SRC_ROOT_VOL_NAME"
+		echo -n "You may enter a label for the destination rootfs $DST_ROOT_PARTITION: "
+		read resp
+		if [ "$resp" != "" ]
+		then
+			e2label $DST_ROOT_PARTITION $resp
+		fi
+	else
+		echo -e "Aborting\n"
+		exit 0
+	fi
+fi
+
+
+# =========== Setup Summary ===========
+#
+DST_ROOT_VOL_NAME=`e2label $DST_ROOT_PARTITION`
+
+if [ "$DST_ROOT_VOL_NAME" = "" ]
+then
+	DST_ROOT_VOL_NAME="no label"
+fi
+
+echo ""
+echo "Clone destination disk   :  $DST_DISK"
+echo "Clone destination rootfs :  $DST_ROOT_PARTITION ($DST_ROOT_VOL_NAME) on ${CLONE}"
+echo "Clone destination bootfs :  $DST_BOOT_PARTITION on ${CLONE}/boot"
+echo "Verbose mode             :  $VERBOSE"
+
+echo "==============================="
+
+
+# If this is an SD card initialization, can watch progress of the clone
+# in another terminal with:  watch df -h
+#
+echo -n "Final check, is it Ok to proceed with the clone (yes/no)?: "
+read resp
+if [ "$resp" != "y" ] && [ "$resp" != "yes" ]
+then
+	echo -e "Aborting the disk clone.\n"
+	exit 0
+fi
+
+#
+# =========== End of Setup  ===========
+
+
+
+
+# Mount destination filesystems.
+
+echo "=> Mounting $DST_ROOT_PARTITION ($DST_ROOT_VOL_NAME) on $CLONE"
+if ! mount $DST_ROOT_PARTITION $CLONE
+then
+	echo -e "Mount failure of $DST_ROOT_PARTITION, aborting!\n"
+	exit 0
+fi
+
+if [ ! -d $CLONE/boot ]
+then
+	mkdir $CLONE/boot
+fi
+
+echo "=> Mounting $DST_BOOT_PARTITION on $CLONE/boot"
+if ! mount $DST_BOOT_PARTITION $CLONE/boot
+then
+	umount $CLONE
+	echo -e "Mount failure of $DST_BOOT_PARTITION, aborting!\n"
+	exit 0
+fi
+
+echo "==============================="
+
+
+
+
+START_TIME=`date '+%H:%M:%S'`
+
+# Exclude fuse mountpoint .gvfs, various other mount points, and tmpfs
+# file systems from the rsync.
+#
+sync
+echo "Starting the filesystem rsync to $DST_DISK"
+echo -n "(This may take several minutes)..."
+rsync $RSYNC_OPTIONS --delete \
+		--exclude '.gvfs' \
+		--exclude '/dev' \
+		--exclude '/media' \
+		--exclude '/mnt' \
+		--exclude '/proc' \
+		--exclude '/run' \
+		--exclude '/sys' \
+		--exclude '/tmp' \
+		--exclude 'lost\+found' \
+	// \
+	$CLONE
+
+
+
+# Fixup some stuff
+#
+
+for i in dev media mnt proc run sys
+do
+	if [ ! -d $CLONE/$i ]
+	then
+		mkdir $CLONE/$i
+	fi
+done
+
+if [ ! -d $CLONE/tmp ]
+then
+	mkdir $CLONE/tmp
+	chmod a+w $CLONE/tmp
+fi
+
+# Some extra optional dirs I create under /mnt
+for i in $OPTIONAL_MNT_DIRS
+do
+	if [ ! -d $CLONE/mnt/$i ]
+	then
+		mkdir $CLONE/mnt/$i
+	fi
+done
+
+rm -f $CLONE/etc/udev/rules.d/70-persistent-net.rules
+
+
+DATE=`date '+%F %H:%M'`
+
+echo "$DATE  $HOSTNAME $PGM : clone to $DST_DISK ($DST_ROOT_VOL_NAME)" \
+		>> $CLONE_LOG
+echo "$DATE  $HOSTNAME $PGM : clone to $DST_DISK ($DST_ROOT_VOL_NAME)" \
+		>> $CLONE/$CLONE_LOG
+
+
+STOP_TIME=`date '+%H:%M:%S'`
+
+echo ""
+echo "*** Done with clone to /dev/$DST_DISK ***"
+echo "    Started: $START_TIME    Finished: $STOP_TIME"
+echo ""
+
+# Pause before unmounting in case I want to inspect the clone results
+# or need to custom modify any files on the destination SD clone.
+# Eg. modify $CLONE/etc/hostname, $CLONE/etc/network/interfaces, etc
+# if I'm cloning into a card to be installed on another Pi.
+#
+echo -n "Hit Enter when ready to unmount the /dev/$DST_DISK partitions..."
+read resp
+
+echo "unmounting $CLONE/boot"
+umount $CLONE/boot
+
+echo "unmounting $CLONE"
+umount $CLONE
+
+
+echo "==============================="
+
+exit 0
