@@ -43,4 +43,4 @@ rpi-clone is on github, to get it and install it to /usr/local/sbin:
 
 
 Bill Wilson
-billw@gkrellm.net
+bill--at--gkrellm.net
