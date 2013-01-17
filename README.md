@@ -35,10 +35,11 @@ writing many temporary files.
 
 rpi-clone must be run as root.
 
-rpi-clone is on github, get it with:
+rpi-clone is on github, to get it and install it to /usr/local/sbin:
 
-git clone https://github.com/billw2/rpi-clone.git 
-
+	$ git clone https://github.com/billw2/rpi-clone.git 
+	$ cd rpi-clone
+	$ cp rpi-clone /usr/local/sbin
 
 
 Bill Wilson
