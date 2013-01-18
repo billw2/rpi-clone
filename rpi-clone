@@ -71,6 +71,9 @@ do
 		-f|--force-initialize)
 			FORCE_INITIALIZE=true
 			;;
+		-h|--help)
+			usage
+			;;
 		*)
 			if [ "$DST_DISK" != "" ]
 			then
