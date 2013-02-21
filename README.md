@@ -65,11 +65,13 @@ to unmount.
 
 rpi-clone is on github, to get it and install it to /usr/local/sbin:
 Go to https://github.com/billw2/rpi-clone and download the zip file:
+
 	$ unzip rpi-clone-master.zip
 	$ cd rpi-clone-master
 	$ cp rpi-clone /usr/local/sbin
 
 or, use git to clone the repository:
+
 	$ git clone https://github.com/billw2/rpi-clone.git 
 	$ cd rpi-clone
 	$ cp rpi-clone /usr/local/sbin
