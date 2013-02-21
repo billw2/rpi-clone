@@ -23,6 +23,15 @@ then
     exit 1
 fi
 
+if ! rsync --version > /dev/null
+then
+	echo -e "\nOoops! rpi-clone needs the rsync program but cannot run it."
+	echo "Make sure rsync is installed:"
+	echo "    $ apt-get update"
+	echo -e "    $ apt-get install rsync\n"
+	exit 0
+fi
+
 usage()
 	{
 	echo ""
