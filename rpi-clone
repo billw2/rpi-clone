@@ -27,9 +27,20 @@ if ! rsync --version > /dev/null
 then
 	echo -e "\nOoops! rpi-clone needs the rsync program but cannot run it."
 	echo "Make sure rsync is installed:"
-	echo "    $ apt-get update"
-	echo -e "    $ apt-get install rsync\n"
+	echo "    $ sudo apt-get update"
+	echo -e "    $ sudo apt-get install rsync\n"
 	exit 0
+fi
+
+if test -e /sbin/fsck.vfat
+then
+	HAVE_FSCK_VFAT="yes"
+else
+
+	echo "[Note] fsck.vfat was not found."
+	echo "It is recommended to install dosfstools:"
+	echo "    $ sudo apt-get update"
+	echo "    $ sudo apt-get install dosfstools"
 fi
 
 usage()
@@ -250,7 +261,16 @@ then
 
 		echo ""
 		echo "Imaging the partition structure, copying $DD_COUNT megabytes..."
+		sync
 		dd if=/dev/mmcblk0 of=/dev/$DST_DISK bs=1M count=$DD_COUNT
+
+		# Partition was copied live so fsck to clean up for possible future
+		# "Volume was not properly unmounted" warnings.
+		if [ "$HAVE_FSCK_VFAT" = "yes" ]
+		then
+			echo "Running fsck on $DST_BOOT_PARTITION..."
+			fsck -p $DST_BOOT_PARTITION &> /dev/null
+		fi
 
 		# But, though Partion 1 is now imaged, partition 2 is incomplete and
 		# maybe the wrong size for the destination SD card.  So fdisk it to
