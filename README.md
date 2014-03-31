@@ -1,3 +1,4 @@
+This is a modification of the original rpi-clone by Bill Wilson. 
 
 rpi-clone is a shell script that will back up (clone using dd and rsync)
 a running Raspberry Pi file system to a destination SD card 'sdN' plugged
@@ -29,7 +30,7 @@ This is done by a partial 'dd' from the running booted device /dev/mmcblk0
 to the destination SD card /dev/sdN followed by a fdisk resize and mkfs.ext4
 of /dev/sdN partition 2.  This creates a completed partition 1 containing
 all boot files and an empty but properly sized partition 2 rootfs.
-The SD card  partitions are then mounted on /mnt/clone and rsynced to the
+The SD card partitions are then mounted on /mnt/clone and rsynced to the
 running system.
 
 You should avoid running other disk writing programs when running rpi-clone,
@@ -76,6 +77,16 @@ or, use git to clone the repository:
 	$ cd rpi-clone
 	$ cp rpi-clone /usr/local/sbin
 
-
 Bill Wilson
 billw--at--gkrellm.net
+
+Updated March 2014 by William Phelps - ask if file system should be
+expanded to fill destination SD card or not.
+
+A larger SD card will greatly improve wear levelling, thus increasing the
+life of the card. However, the file system does not need to be expanded
+to take advantage of this. Larger file systems make for larger backup images.
+I wanted a version of this tool that would preserve the exisiting file
+system size.
+
+https://github.com/wbphelps/rpi-clone-wm.git

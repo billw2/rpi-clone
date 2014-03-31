@@ -181,6 +181,16 @@ expand_rootfs()
 	# Get the starting offset of the root partition
 	PART_START=$(parted /dev/mmcblk0 -ms unit s p | grep "^2" | cut -f 2 -d:)
 	[ "$PART_START" ] || return 1
+	echo -n "Do you want to expand the destination /dev/$DST_DISK? (yes/no): "
+	read resp
+	if [ "$resp" = "y" ] || [ "$resp" = "yes" ]
+	then
+		PART_END=""
+	else
+		# Get the end offset of the root partition
+		PART_END=$(parted /dev/mmcblk0 -ms unit s p | grep "^2" | cut -f 3 -d:)
+		[ "$PART_END" ] || return 1
+	fi
 	# Return value will likely be error for fdisk as it fails to reload the
 	# partition table because the root fs is mounted
 	fdisk /dev/$DST_DISK > /dev/null <<EOF
@@ -191,7 +201,7 @@ n
 p
 2
 $PART_START
-
+$PART_END
 p
 w
 q
@@ -256,9 +266,9 @@ then
 		# maybe the wrong size for the destination SD card.  So fdisk it to
 		# make it fill the rest of the disk and mkfs it to clean it out.
 		#
-		echo "Sizing partition 2 (root partition) to use all SD card space..."
 		expand_rootfs
-		mkfs.ext4 $DST_ROOT_PARTITION > /dev/null
+#		mkfs.ext4 $DST_ROOT_PARTITION > /dev/null
+		mkfs.ext4 $DST_ROOT_PARTITION
 
 		echo ""
 		echo "/dev/$DST_DISK is initialized and resized.  Its partitions are:"
