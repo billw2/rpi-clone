@@ -4,7 +4,7 @@ a running Raspberry Pi file system to a destination SD card 'sdN' plugged
 into a Pi USB port (via a USB card reader).
 I use it to maintain backups of several Pi SD cards I have and the destination
 backup SD cards can be a different size (smaller or larger) than the booted
-SD card.  rpi-clone works on Raspberry Pi disk which have a VFAT boot
+SD card.  rpi-clone works on Raspberry Pi disks which have a VFAT boot
 partition 1 and a Linux root partition 2.  Tested on Raspbian but should
 work on other distributions which have this same two partition structure.
 
@@ -46,24 +46,17 @@ before unmounting the cloned to SD card.  This is so you can go look at
 the clone results or make any custom final adjustments if needed.  For example,
 I have a couple of Raspberry Pis and I use one as a master.  When I clone for
 the benefit of the second Pi, I do a "cd /mnt/clone/etc" and fix the files
-needed to customize for the second Pi.  This can be as simple as loading
-new hosts and network interfaces file.  Just keep all the files on the master:
+needed to customize for the second Pi (well, actually I do that with a
+script that takes my desired Pi hostname as an argument).  Either way, you
+typically might need to change at least these files:
 
-	/etc/hostname		# hostname is trivial, so don't really need the
-	/etc/hostname.rpi0  # multiple copies - but I'll just list it here.
-	/etc/hostname.rpi1
-	/etc/hosts
-	/etc/hosts.rpi0
-	/etc/hosts.rpi1
-	/etc/network/interfaces
-	/etc/network/interfaces.rpi0
-	/etc/network/interfaces.rpi1
+	/etc/hostname			# I have one of rpi0, rpi0, ...
+	/etc/hosts				# The localhost line should probably be changed
+	/etc/network/interfaces	# If you need to set up a static IP or alias
 
-In my case, rpi0 is my master so I really don't need the .rpi0 copies, but
-I keep them just in case.  Then when cloning to update for rpi1, I just
-copy the .rpi1 files over before letting rpi-clone umount everything.
-But don't forget to cd out of the /mnt/clone tree before telling rpi-clone
-to unmount.
+If you cd into the /mnt/clone/tree to make some of these customizations
+or just to look around, don't forget to cd out of the /mnt/clone tree
+before telling rpi-clone to unmount.
 
 rpi-clone is on github, to get it and install it to /usr/local/sbin:
 Go to https://github.com/billw2/rpi-clone and download the zip file:
