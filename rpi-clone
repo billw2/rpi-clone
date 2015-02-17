@@ -1,5 +1,15 @@
 #!/bin/bash
 
+VERSION=1.1
+# Version 1.1	2015/02/16
+#	* Do not include dphys swapfile in the clone.
+#	* Add a missing -s flag to one of the parted commands.
+#	* Dump parted stderr to /dev/null since it now complains about destination
+#	    disk partitions ending outside of disk before I get chance to resize
+#	    the partitions.
+#	* Strip trailing s from PART_START - (fdisk now doesn't seem to accept...)
+#
+
 PGM=`basename $0`
 
 RSYNC_OPTIONS="--force -rltWDEgopt"
@@ -25,7 +35,7 @@ fi
 
 if ! rsync --version > /dev/null
 then
-	echo -e "\nOoops! rpi-clone needs the rsync program but cannot run it."
+	echo -e "\nOoops! rpi-clone needs the rsync program but cannot find it."
 	echo "Make sure rsync is installed:"
 	echo "    $ sudo apt-get update"
 	echo -e "    $ sudo apt-get install rsync\n"
@@ -74,8 +84,10 @@ usage()
 	echo ""
 	echo "    The SD card destination partitions will be mounted on $CLONE."
 	echo "    A log will be written to $CLONE_LOG."
-	echo "    Avoid running other disk writing programs when running $PGM."
+	echo "    It's better to avoid running other disk writing programs"
+	echo "    when running $PGM."
 	echo ""
+	echo "    Version $VERSION"
 	exit 0
 	}
 
@@ -116,8 +128,8 @@ fi
 if ! cat /proc/partitions | grep -q $DST_DISK
 then
 	echo "Destination disk '$DST_DISK' does not exist."
-	echo "Plug the destination SD card into a USB port."
-	echo "If it does not show up  as '$DST_DISK', then do a"
+	echo "Plug the destination SD card into a card reader connected to a"
+	echo "USB port.  If it does not show up  as '$DST_DISK', then do a"
 	echo -e "'cat /proc/partitions' to see where it might be.\n"
 	exit 0
 fi
@@ -190,7 +202,8 @@ fi
 expand_rootfs()
 	{
 	# Get the starting offset of the root partition
-	PART_START=$(parted /dev/mmcblk0 -ms unit s p | grep "^2" | cut -f 2 -d:)
+	PART_START=$(parted /dev/mmcblk0 -ms unit s p  \
+			| grep "^2" | cut -f 2 -d: | cut -f 1 -d s)
 	[ "$PART_START" ] || return 1
 	# Return value will likely be error for fdisk as it fails to reload the
 	# partition table because the root fs is mounted
@@ -214,9 +227,9 @@ EOF
 #
 # Check that destination partitions are the right type.
 #
-DST_BOOT_PARTITION_TYPE=`parted /dev/$DST_DISK -ms p \
+DST_BOOT_PARTITION_TYPE=`parted /dev/$DST_DISK -ms p 2>/dev/null \
 		| grep "^1" | cut -f 5 -d:`
-DST_ROOT_PARTITION_TYPE=`parted /dev/$DST_DISK -ms p \
+DST_ROOT_PARTITION_TYPE=`parted /dev/$DST_DISK -ms p 2>/dev/null \
 		| grep "^2" | cut -f 5 -d:`
 
 
@@ -227,25 +240,29 @@ then
 	echo ""
 	if [ "$FORCE_INITIALIZE" = "true" ]
 	then
-		echo "*** Forcing a partition initialization of destination '$DST_DISK' ***"
+		echo "Forcing a partition initialization of destination disk $DST_DISK"
+	else
+		echo "The destination disk $DST_DISK partition table does not"
+		echo "match the booted disk /dev/mmcblk0 partition table so a"
+		echo "destination disk initialize is required."
 	fi
 
-	echo "The existing partitions on destination disk '$DST_DISK' are:"
-#	fdisk -l /dev/$DST_DISK | grep $DST_DISK
-	parted /dev/$DST_DISK unit MB p \
-		| sed "/^Model/d ; /^Sector/d"
-	if [ "$DST_BOOT_PARTITION_TYPE" != "$SRC_BOOT_PARTITION_TYPE" ]
-	then
-		echo -e "  ... Cannot find a destination boot file system of type: $SRC_BOOT_PARTITION_TYPE\n"
-	fi
-	if [ "$DST_ROOT_PARTITION_TYPE" != "$SRC_ROOT_PARTITION_TYPE" ]
-	then
-		echo -e "  ... Cannot find a destination root file system of type: $SRC_ROOT_PARTITION_TYPE\n"
-	fi
-	echo "This script can initialize the destination disk with a partition"
-	echo "structure copied from the currently booted filesytem and then resize"
-	echo "partition 2 (the root filesystem) to use all space on the SD card."
-	echo -n "Do you want to initialize the destination /dev/$DST_DISK? (yes/no): "
+#	echo "Existing '$DST_DISK' partitions are:"
+#	parted /dev/$DST_DISK -s unit MB p 2>/dev/null \
+#		| sed "/^Model/d ; /^Sector/d ; /^Disk Flags/d"
+#	if [ "$DST_BOOT_PARTITION_TYPE" != "$SRC_BOOT_PARTITION_TYPE" ]
+#	then
+#		echo -e "  ... Cannot find a destination boot file system of type: $SRC_BOOT_PARTITION_TYPE\n"
+#	fi
+#	if [ "$DST_ROOT_PARTITION_TYPE" != "$SRC_ROOT_PARTITION_TYPE" ]
+#	then
+#		echo -e "  ... Cannot find a destination root file system of type: $SRC_ROOT_PARTITION_TYPE\n"
+#	fi
+
+	echo "*** All data on destination disk $DST_DISK will be overwritten! ***"
+	echo ""
+	echo -n "Do you want to initialize the destination disk /dev/$DST_DISK? (yes/no): "
+
 	read resp
 	if [ "$resp" = "y" ] || [ "$resp" = "yes" ]
 	then
@@ -284,7 +301,7 @@ then
 		echo "/dev/$DST_DISK is initialized and resized.  Its partitions are:"
 #		fdisk -l /dev/$DST_DISK | grep $DST_DISK
 		parted /dev/$DST_DISK unit MB p \
-			| sed "/^Model/d ; /^Sector/d"
+			| sed "/^Model/d ; /^Sector/d ; /^Disk Flags/d"
 
 		SRC_ROOT_VOL_NAME=`e2label /dev/mmcblk0p2`
 		echo ""
@@ -312,11 +329,11 @@ then
 fi
 
 echo ""
+echo "======== Clone Summary ========"
 echo "Clone destination disk   :  $DST_DISK"
 echo "Clone destination rootfs :  $DST_ROOT_PARTITION ($DST_ROOT_VOL_NAME) on ${CLONE}"
 echo "Clone destination bootfs :  $DST_BOOT_PARTITION on ${CLONE}/boot"
 echo "Verbose mode             :  $VERBOSE"
-
 echo "==============================="
 
 
@@ -361,8 +378,18 @@ fi
 
 echo "==============================="
 
-
-
+# Do not include a dhpys swapfile in the clone.  dhpys-swapfile will
+# regenerate it at boot.
+#
+if [ -f /etc/dphys-swapfile ]
+then
+	SWAPFILE=`cat /etc/dphys-swapfile | grep ^CONF_SWAPFILE | cut -f 2 -d=`
+	if [ "$SWAPFILE" = "" ]
+	then
+		SWAPFILE=/var/swap
+	fi
+	EXCLUDE_SWAPFILE="--exclude $SWAPFILE"
+fi
 
 START_TIME=`date '+%H:%M:%S'`
 
@@ -373,6 +400,7 @@ sync
 echo "Starting the filesystem rsync to $DST_DISK"
 echo -n "(This may take several minutes)..."
 rsync $RSYNC_OPTIONS --delete \
+		$EXCLUDE_SWAPFILE \
 		--exclude '.gvfs' \
 		--exclude '/dev' \
 		--exclude '/media' \

@@ -4,7 +4,9 @@ a running Raspberry Pi file system to a destination SD card 'sdN' plugged
 into a Pi USB port (via a USB card reader).
 I use it to maintain backups of several Pi SD cards I have and the destination
 backup SD cards can be a different size (smaller or larger) than the booted
-SD card.
+SD card.  rpi-clone works on Raspberry Pi disk which have a VFAT boot
+partition 1 and a Linux root partition 2.  Tested on Raspbian but should
+work on other distributions which have this same two partition structure.
 
 rpi-clone can clone the running system to a new SD card or can incrementally
 rsync to existing backup Raspberry Pi SD cards.  During the clone to new SD
