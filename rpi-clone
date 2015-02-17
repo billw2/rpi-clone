@@ -1,6 +1,9 @@
 #!/bin/bash
 
-VERSION=1.1
+VERSION=1.2
+# Version 1.2	2015/02/17
+#	* add -x option
+#	* tweak some echo messages
 # Version 1.1	2015/02/16
 #	* Do not include dphys swapfile in the clone.
 #	* Add a missing -s flag to one of the parted commands.
@@ -56,10 +59,11 @@ fi
 usage()
 	{
 	echo ""
-	echo "usage: $PGM sdN {-f|--force-initialize} {-v|--verbose}"
+	echo "usage: $PGM sdN {-f|--force-initialize} {-v|--verbose} {-x}"
 	echo "    Example:  $PGM sda"
 	echo "    -v - list all files as they are copied."
 	echo "    -f - force initialize the destination partitions"
+	echo "    -x - use set -x for very verbose bash shell script debugging"
 	echo ""
 	echo "    Clone (rsync) a running Raspberry Pi file system to a destination"
 	echo "    SD card 'sdN' plugged into a Pi USB port (via a USB card reader)."
@@ -102,6 +106,9 @@ do
 			;;
 		-f|--force-initialize)
 			FORCE_INITIALIZE=true
+			;;
+		-x)
+			set -x
 			;;
 		-h|--help)
 			usage
@@ -202,6 +209,7 @@ fi
 expand_rootfs()
 	{
 	# Get the starting offset of the root partition
+	# (with Jessie's parted, now need to strip trailing 's' from PART_START)
 	PART_START=$(parted /dev/mmcblk0 -ms unit s p  \
 			| grep "^2" | cut -f 2 -d: | cut -f 1 -d s)
 	[ "$PART_START" ] || return 1
@@ -232,11 +240,13 @@ DST_BOOT_PARTITION_TYPE=`parted /dev/$DST_DISK -ms p 2>/dev/null \
 DST_ROOT_PARTITION_TYPE=`parted /dev/$DST_DISK -ms p 2>/dev/null \
 		| grep "^2" | cut -f 5 -d:`
 
+CLONE_MODE="rsync modified files to existing $DST_DISK file systems"
 
 if [ "$DST_BOOT_PARTITION_TYPE" != "$SRC_BOOT_PARTITION_TYPE" ] || \
    [ "$DST_ROOT_PARTITION_TYPE" != "$SRC_ROOT_PARTITION_TYPE" ] || \
    [ "$FORCE_INITIALIZE" = "true" ]
 then
+	CLONE_MODE="rsync all files to $DST_DISK root file system"
 	echo ""
 	if [ "$FORCE_INITIALIZE" = "true" ]
 	then
@@ -247,9 +257,10 @@ then
 		echo "destination disk initialize is required."
 	fi
 
-#	echo "Existing '$DST_DISK' partitions are:"
-#	parted /dev/$DST_DISK -s unit MB p 2>/dev/null \
-#		| sed "/^Model/d ; /^Sector/d ; /^Disk Flags/d"
+	echo "The existing destination disk '$DST_DISK' partitions are:"
+	parted /dev/$DST_DISK -s unit MB p 2>/dev/null \
+		| sed "/^Model/d ; /^Sector/d ; /^Disk Flags/d"
+
 #	if [ "$DST_BOOT_PARTITION_TYPE" != "$SRC_BOOT_PARTITION_TYPE" ]
 #	then
 #		echo -e "  ... Cannot find a destination boot file system of type: $SRC_BOOT_PARTITION_TYPE\n"
@@ -330,6 +341,7 @@ fi
 
 echo ""
 echo "======== Clone Summary ========"
+echo "Clone mode               :  $CLONE_MODE"
 echo "Clone destination disk   :  $DST_DISK"
 echo "Clone destination rootfs :  $DST_ROOT_PARTITION ($DST_ROOT_VOL_NAME) on ${CLONE}"
 echo "Clone destination bootfs :  $DST_BOOT_PARTITION on ${CLONE}/boot"
