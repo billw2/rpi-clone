@@ -71,6 +71,9 @@ or, use git to clone the repository:
 	$ cd rpi-clone
 	$ cp rpi-clone /usr/local/sbin
 
+For a French translation of rpi-clone by Mehdi HAMIDA, go to:
+    https://github.com/idem2lyon/rpi-clone
+
 
 Bill Wilson
 billw--at--gkrellm.net
