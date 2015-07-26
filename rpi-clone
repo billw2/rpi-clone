@@ -62,6 +62,7 @@ usage()
 	echo "usage: $PGM sdN {-f|--force-initialize} {-v|--verbose} {-x}"
 	echo "    Example:  $PGM sda"
 	echo "    -v - list all files as they are copied."
+	echo "    -n - do a dry-run of rsync."
 	echo "    -f - force initialize the destination partitions"
 	echo "    -x - use set -x for very verbose bash shell script debugging"
 	echo ""
@@ -103,6 +104,9 @@ do
 		-v|--verbose)
 			VERBOSE=on
 			RSYNC_OPTIONS=${RSYNC_OPTIONS}v
+			;;
+		-n|--dry-run)
+			RSYNC_OPTIONS=${RSYNC_OPTIONS}n
 			;;
 		-f|--force-initialize)
 			FORCE_INITIALIZE=true
