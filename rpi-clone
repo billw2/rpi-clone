@@ -1,6 +1,11 @@
 #!/bin/bash
 
-VERSION=1.3
+VERSION=1.4
+# Version 1.4 2015/08/16
+#  * add -n (--dry-run) option for rsync
+#  * add -u (--uuid) option to auto-detect disk by UUID. 
+#           System on reboot may change its disk symbol mapping, thus dangerous.
+#           It is more secure searching by UUID.
 # Version 1.3	2015/06/18
 #	* add -q (quiet) option for use as cron script
 #         -q only works with existing backups, 
@@ -70,6 +75,7 @@ usage()
 	echo "    Example:  $PGM sda"
 	echo "    -v - list all files as they are copied."
 	echo "    -n - do a dry-run of rsync."
+	echo "    -u - UUID of one of a disk partition, used when disk is not passed."
 	echo "    -f - force initialize the destination partitions"
 	echo "    -x - use set -x for very verbose bash shell script debugging"
 	echo "    -q - use quiet modus to schedule the script as a cron script"
@@ -116,6 +122,10 @@ do
 			;;
 		-n|--dry-run)
 			RSYNC_OPTIONS=${RSYNC_OPTIONS}n
+			;;
+		-u|--uuid)
+			shift
+			DST_DISK=$(blkid -U $1 | tail -c 5 | head -c 3)
 			;;
 		-f|--force-initialize)
 			FORCE_INITIALIZE=true
