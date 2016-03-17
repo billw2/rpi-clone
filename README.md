@@ -74,6 +74,9 @@ or, use git to clone the repository:
 For a French translation of rpi-clone by Mehdi HAMIDA, go to:
     https://github.com/idem2lyon/rpi-clone
 
+GTR2Fan on the Pi forums has instructions for putting rpi-clone into
+the menu of the desktop GUI:
+	https://www.raspberrypi.org/forums/viewtopic.php?f=29&t=137693&p=914109#p914109
 
 Bill Wilson
 billw--at--gkrellm.net

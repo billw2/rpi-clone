@@ -1,6 +1,8 @@
 #!/bin/bash
 
-VERSION=1.2
+VERSION=1.3
+# Version 1.3	2016/03/16
+#	* don't > /dev/null for the mkfs.ext4 since mkfs can ask a question
 # Version 1.2	2015/02/17
 #	* add -x option
 #	* tweak some echo messages
@@ -306,7 +308,7 @@ then
 		#
 		echo "Sizing partition 2 (root partition) to use all SD card space..."
 		expand_rootfs
-		mkfs.ext4 $DST_ROOT_PARTITION > /dev/null
+		mkfs.ext4 $DST_ROOT_PARTITION
 
 		echo ""
 		echo "/dev/$DST_DISK is initialized and resized.  Its partitions are:"
