@@ -416,7 +416,7 @@ fi
 # Mount destination filesystems.
 
 echo "=> Mounting $DST_ROOT_PARTITION ($DST_ROOT_VOL_NAME) on $CLONE"
-if ! mount $DST_ROOT_PARTITION $CLONE
+if ! mount -t ext4 $DST_ROOT_PARTITION $CLONE
 then
 	echo -e "Mount failure of $DST_ROOT_PARTITION, aborting!\n"
 	exit 0
@@ -428,9 +428,9 @@ then
 fi
 
 echo "=> Mounting $DST_BOOT_PARTITION on $CLONE/boot"
-if ! mount $DST_BOOT_PARTITION $CLONE/boot
+if ! mount -t vfat $DST_BOOT_PARTITION $CLONE/boot
 then
-	umount $CLONE
+	umount -t ext4 $CLONE
 	echo -e "Mount failure of $DST_BOOT_PARTITION, aborting!\n"
 	exit 0
 fi
@@ -529,10 +529,10 @@ then
 	read resp
 fi
 echo "unmounting $CLONE/boot"
-umount $CLONE/boot
+umount -t vfat $CLONE/boot
 
 echo "unmounting $CLONE"
-umount $CLONE
+umount -t ext4 $CLONE
 
 
 echo "==============================="
