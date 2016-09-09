@@ -1,8 +1,11 @@
 #!/bin/bash
 
-VERSION=1.4
+VERSION=1.5
+# Version 1.5	2016/09/09
+#	* Remove any leading /dev/ from dest disk.
+#	* Warn dest disk may be a partition if it ends with a digit.
 # Version 1.4	2016/03/23
-#	* Use -F on mkfs.ext4 and just avoid the question.
+#	* Use -F on mkfs.ext4 and avoid the question.
 # Version 1.3	2016/03/16
 #	* don't > /dev/null for the mkfs.ext4 since mkfs can ask a question
 # Version 1.2	2015/02/17
@@ -136,6 +139,13 @@ then
 	exit 0
 fi
 
+# Remove leading /dev/
+DIR=`expr substr $DST_DISK 1 5`
+if [ "$DIR" == "/dev/" ]
+then
+	DST_DISK=${DST_DISK#/dev/}
+fi
+
 if ! cat /proc/partitions | grep -q $DST_DISK
 then
 	echo "Destination disk '$DST_DISK' does not exist."
@@ -143,6 +153,23 @@ then
 	echo "USB port.  If it does not show up  as '$DST_DISK', then do a"
 	echo -e "'cat /proc/partitions' to see where it might be.\n"
 	exit 0
+fi
+
+CHK_DISK=`cat /proc/partitions | grep -m 1 $DST_DISK`
+D=${CHK_DISK: -1}
+if [ "$D" -eq "$D" ] 2>/dev/null
+then
+	echo "  The target disk you entered, $DST_DISK, ends with a digit and this"
+	echo "  may mean you have given a partition name instead of a disk name."
+	echo "  For example, if you want to clone to a disk sda,"
+	echo "  specify sda and not one of its partition names like sda1 or sda2."
+	echo -n "Do you want to continue anyway? (yes/no):"
+	read resp
+	if [ "$resp" != "y" ] && [ "$resp" != "yes" ]
+	then
+		echo ""
+		exit 0
+	fi
 fi
 
 unmount_or_abort()
