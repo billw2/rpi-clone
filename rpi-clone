@@ -20,7 +20,7 @@ VERSION=1.5
 #	* Strip trailing s from PART_START - (fdisk now doesn't seem to accept...)
 #
 
-PGM=`basename $0`
+PGM=$(basename "$0")
 
 RSYNC_OPTIONS="--force -rltWDEgopt"
 
@@ -32,12 +32,12 @@ CLONE=/mnt/clone
 
 CLONE_LOG=/var/log/$PGM.log
 
-HOSTNAME=`hostname`
+HOSTNAME=$(hostnamer)
 
-SRC_BOOT_PARTITION_TYPE=`parted /dev/mmcblk0 -ms p | grep "^1" | cut -f 5 -d:`
-SRC_ROOT_PARTITION_TYPE=`parted /dev/mmcblk0 -ms p | grep "^2" | cut -f 5 -d:`
+SRC_BOOT_PARTITION_TYPE=$(parted /dev/mmcblk0 -ms p | grep "^1" | cut -f 5 -d:)
+SRC_ROOT_PARTITION_TYPE=$(parted /dev/mmcblk0 -ms p | grep "^2" | cut -f 5 -d:)
 
-if [ `id -u` != 0 ]
+if [ "$(id -u)" != 0 ]
 then
     echo -e "$PGM needs to be run as root.\n"
     exit 1
@@ -140,13 +140,13 @@ then
 fi
 
 # Remove leading /dev/
-DIR=`expr substr $DST_DISK 1 5`
+DIR=$(${$DST_DISK:1:5})
 if [ "$DIR" == "/dev/" ]
 then
 	DST_DISK=${DST_DISK#/dev/}
 fi
 
-if ! cat /proc/partitions | grep -q $DST_DISK
+if ! grep -q "${DST_DISK}" /proc/partitions
 then
 	echo "Destination disk '$DST_DISK' does not exist."
 	echo "Plug the destination SD card into a card reader connected to a"
@@ -155,7 +155,7 @@ then
 	exit 0
 fi
 
-CHK_DISK=`cat /proc/partitions | grep -m 1 $DST_DISK`
+CHK_DISK=$(grep -m 1 "${DST_DISK}" /proc/partitions)
 D=${CHK_DISK: -1}
 if [ "$D" -eq "$D" ] 2>/dev/null
 then
@@ -164,7 +164,7 @@ then
 	echo "  For example, if you want to clone to a disk sda,"
 	echo "  specify sda and not one of its partition names like sda1 or sda2."
 	echo -n "Do you want to continue anyway? (yes/no):"
-	read resp
+	read -r resp
 	if [ "$resp" != "y" ] && [ "$resp" != "yes" ]
 	then
 		echo ""
@@ -175,10 +175,10 @@ fi
 unmount_or_abort()
 	{
 	echo -n "Do you want to unmount $1? (yes/no): "
-	read resp
+	read -r resp
 	if [ "$resp" = "y" ] || [ "$resp" = "yes" ]
 	then
-		if ! umount $1
+		if ! umount "$1"
 		then
 			echo "Sorry, $PGM could not unmount $1."
 			echo -e "Aborting!\n"
@@ -195,8 +195,8 @@ DST_BOOT_PARTITION=/dev/${DST_DISK}1
 
 # Check that none of the destination partitions are busy (mounted).
 #
-DST_ROOT_CURMOUNT=`fgrep "$DST_ROOT_PARTITION " /etc/mtab | cut -f 2 -d ' ' `
-DST_BOOT_CURMOUNT=`fgrep "$DST_BOOT_PARTITION " /etc/mtab | cut -f 2 -d ' ' `
+DST_ROOT_CURMOUNT=$(grep -F "$DST_ROOT_PARTITION " /etc/mtab | cut -f 2 -d ' ' )
+DST_BOOT_CURMOUNT=$(grep -F "$DST_BOOT_PARTITION " /etc/mtab | cut -f 2 -d ' ' )
 
 if [ "$DST_ROOT_CURMOUNT" != "" ] || [ "$DST_BOOT_CURMOUNT" != "" ]
 then
@@ -205,16 +205,16 @@ then
 	echo "    $DST_BOOT_PARTITION:  $DST_BOOT_CURMOUNT"
 	if [ "$DST_BOOT_CURMOUNT" != "" ]
 	then
-		unmount_or_abort $DST_BOOT_CURMOUNT
+		unmount_or_abort "${DST_BOOT_CURMOUNT}"
 	fi
 	if [ "$DST_ROOT_CURMOUNT" != "" ]
 	then
-		unmount_or_abort $DST_ROOT_CURMOUNT
+		unmount_or_abort "${DST_ROOT_CURMOUNT}"
 	fi
 fi
 
 
-TEST_MOUNTED=`fgrep " $CLONE " /etc/mtab | cut -f 1 -d ' ' `
+TEST_MOUNTED=$(grep -F " $CLONE " /etc/mtab | cut -f 1 -d ' ' )
 if [ "$TEST_MOUNTED" != "" ]
 then
 	echo "This script uses $CLONE for mounting filesystems, but"
@@ -224,7 +224,7 @@ fi
 
 if [ ! -d $CLONE ]
 then
-	MNT_MOUNT=`fgrep " /mnt " /etc/mtab | cut -f 1 -d ' ' `
+	MNT_MOUNT=$(grep -F " /mnt " /etc/mtab | cut -f 1 -d ' ' )
 	if [ "$MNT_MOUNT" = "" ]
 	then
 		mkdir $CLONE
@@ -246,7 +246,7 @@ expand_rootfs()
 	[ "$PART_START" ] || return 1
 	# Return value will likely be error for fdisk as it fails to reload the
 	# partition table because the root fs is mounted
-	fdisk /dev/$DST_DISK > /dev/null <<EOF
+	fdisk /dev/"${DST_DISK}" > /dev/null <<EOF
 p
 d
 2
@@ -266,10 +266,10 @@ EOF
 #
 # Check that destination partitions are the right type.
 #
-DST_BOOT_PARTITION_TYPE=`parted /dev/$DST_DISK -ms p 2>/dev/null \
-		| grep "^1" | cut -f 5 -d:`
-DST_ROOT_PARTITION_TYPE=`parted /dev/$DST_DISK -ms p 2>/dev/null \
-		| grep "^2" | cut -f 5 -d:`
+DST_BOOT_PARTITION_TYPE=$(parted /dev/"${DST_DISK}" -ms p 2>/dev/null \
+		| grep "^1" | cut -f 5 -d:)
+DST_ROOT_PARTITION_TYPE=$(parted /dev/"${DST_DISK}" -ms p 2>/dev/null \
+		| grep "^2" | cut -f 5 -d:)
 
 CLONE_MODE="rsync modified files to existing $DST_DISK file systems"
 
@@ -289,7 +289,7 @@ then
 	fi
 
 	echo "The existing destination disk '$DST_DISK' partitions are:"
-	parted /dev/$DST_DISK -s unit MB p 2>/dev/null \
+	parted /dev/"${DST_DISK}" -s unit MB p 2>/dev/null \
 		| sed "/^Model/d ; /^Sector/d ; /^Disk Flags/d"
 
 #	if [ "$DST_BOOT_PARTITION_TYPE" != "$SRC_BOOT_PARTITION_TYPE" ]
@@ -305,7 +305,7 @@ then
 	echo ""
 	echo -n "Do you want to initialize the destination disk /dev/$DST_DISK? (yes/no): "
 
-	read resp
+	read -r resp
 	if [ "$resp" = "y" ] || [ "$resp" = "yes" ]
 	then
 		# Image onto the destination disk a beginning fragment of the
@@ -316,19 +316,19 @@ then
 		PART2_START=$(parted /dev/mmcblk0 -ms unit MB p | grep "^2" \
 				| cut -f 2 -d: | sed s/MB// | tr "," "." | cut -f 1 -d.)
 		# and add some slop
-		DD_COUNT=`expr $PART2_START + 8`
+		DD_COUNT=$(( "${PART2_START}" + 8 ))
 
 		echo ""
 		echo "Imaging the partition structure, copying $DD_COUNT megabytes..."
 		sync
-		dd if=/dev/mmcblk0 of=/dev/$DST_DISK bs=1M count=$DD_COUNT
+		dd if=/dev/mmcblk0 of=/dev/"${DST_DISK}" bs=1M count="${DD_COUNT}"
 
 		# Partition was copied live so fsck to clean up for possible future
 		# "Volume was not properly unmounted" warnings.
 		if [ "$HAVE_FSCK_VFAT" = "yes" ]
 		then
 			echo "Running fsck on $DST_BOOT_PARTITION..."
-			fsck -p $DST_BOOT_PARTITION &> /dev/null
+			fsck -p "${DST_BOOT_PARTITION}" &> /dev/null
 		fi
 
 		# But, though Partion 1 is now imaged, partition 2 is incomplete and
@@ -337,22 +337,22 @@ then
 		#
 		echo "Sizing partition 2 (root partition) to use all SD card space..."
 		expand_rootfs
-		mkfs.ext4 -F $DST_ROOT_PARTITION
+		mkfs.ext4 -F "${DST_ROOT_PARTITION}"
 
 		echo ""
 		echo "/dev/$DST_DISK is initialized and resized.  Its partitions are:"
 #		fdisk -l /dev/$DST_DISK | grep $DST_DISK
-		parted /dev/$DST_DISK unit MB p \
+		parted /dev/"${DST_DISK}" unit MB p \
 			| sed "/^Model/d ; /^Sector/d ; /^Disk Flags/d"
 
-		SRC_ROOT_VOL_NAME=`e2label /dev/mmcblk0p2`
+		SRC_ROOT_VOL_NAME=$(e2label /dev/mmcblk0p2)
 		echo ""
 		echo "Your booted /dev/mmcblk0p2 rootfs existing label: $SRC_ROOT_VOL_NAME"
 		echo -n "You may enter a label for the destination rootfs $DST_ROOT_PARTITION: "
-		read resp
+		read -r resp
 		if [ "$resp" != "" ]
 		then
-			e2label $DST_ROOT_PARTITION $resp
+			e2label "${DST_ROOT_PARTITION}" "${resp}"
 		fi
 	else
 		echo -e "Aborting\n"
@@ -363,7 +363,7 @@ fi
 
 # =========== Setup Summary ===========
 #
-DST_ROOT_VOL_NAME=`e2label $DST_ROOT_PARTITION`
+DST_ROOT_VOL_NAME=$(e2label "${DST_ROOT_PARTITION}")
 
 if [ "$DST_ROOT_VOL_NAME" = "" ]
 then
@@ -384,7 +384,7 @@ echo "==============================="
 # in another terminal with:  watch df -h
 #
 echo -n "Final check, is it Ok to proceed with the clone (yes/no)?: "
-read resp
+read -r resp
 if [ "$resp" != "y" ] && [ "$resp" != "yes" ]
 then
 	echo -e "Aborting the disk clone.\n"
@@ -400,7 +400,7 @@ fi
 # Mount destination filesystems.
 
 echo "=> Mounting $DST_ROOT_PARTITION ($DST_ROOT_VOL_NAME) on $CLONE"
-if ! mount $DST_ROOT_PARTITION $CLONE
+if ! mount "${DST_ROOT_PARTITION}" "${CLONE}"
 then
 	echo -e "Mount failure of $DST_ROOT_PARTITION, aborting!\n"
 	exit 0
@@ -412,7 +412,7 @@ then
 fi
 
 echo "=> Mounting $DST_BOOT_PARTITION on $CLONE/boot"
-if ! mount $DST_BOOT_PARTITION $CLONE/boot
+if ! mount "${DST_BOOT_PARTITION}" "${CLONE}/boot"
 then
 	umount $CLONE
 	echo -e "Mount failure of $DST_BOOT_PARTITION, aborting!\n"
@@ -426,7 +426,7 @@ echo "==============================="
 #
 if [ -f /etc/dphys-swapfile ]
 then
-	SWAPFILE=`cat /etc/dphys-swapfile | grep ^CONF_SWAPFILE | cut -f 2 -d=`
+	SWAPFILE=$(grep ^CONF_SWAPFILE /etc/dphys-swapfile | cut -f 2 -d=)
 	if [ "$SWAPFILE" = "" ]
 	then
 		SWAPFILE=/var/swap
@@ -434,7 +434,7 @@ then
 	EXCLUDE_SWAPFILE="--exclude $SWAPFILE"
 fi
 
-START_TIME=`date '+%H:%M:%S'`
+START_TIME=$(date '+%H:%M:%S')
 
 # Exclude fuse mountpoint .gvfs, various other mount points, and tmpfs
 # file systems from the rsync.
@@ -442,8 +442,8 @@ START_TIME=`date '+%H:%M:%S'`
 sync
 echo "Starting the filesystem rsync to $DST_DISK"
 echo -n "(This may take several minutes)..."
-rsync $RSYNC_OPTIONS --delete \
-		$EXCLUDE_SWAPFILE \
+rsync "${RSYNC_OPTIONS}" --delete \
+		"${EXCLUDE_SWAPFILE}" \
 		--exclude '.gvfs' \
 		--exclude '/dev' \
 		--exclude '/media' \
@@ -478,24 +478,24 @@ fi
 # Some extra optional dirs I create under /mnt
 for i in $OPTIONAL_MNT_DIRS
 do
-	if [ ! -d $CLONE/mnt/$i ]
+	if [ ! -d "${CLONE}/mnt/${i}" ]
 	then
-		mkdir $CLONE/mnt/$i
+		mkdir "${CLONE}/mnt/${i}"
 	fi
 done
 
 rm -f $CLONE/etc/udev/rules.d/70-persistent-net.rules
 
 
-DATE=`date '+%F %H:%M'`
+DATE=$(date '+%F %H:%M')
 
 echo "$DATE  $HOSTNAME $PGM : clone to $DST_DISK ($DST_ROOT_VOL_NAME)" \
-		>> $CLONE_LOG
+		>> "${CLONE_LOG}"
 echo "$DATE  $HOSTNAME $PGM : clone to $DST_DISK ($DST_ROOT_VOL_NAME)" \
-		>> $CLONE/$CLONE_LOG
+		>> "${CLONE}/${CLONE_LOG}"
 
 
-STOP_TIME=`date '+%H:%M:%S'`
+STOP_TIME=$(date '+%H:%M:%S')
 
 echo ""
 echo "*** Done with clone to /dev/$DST_DISK ***"
@@ -508,7 +508,7 @@ echo ""
 # if I'm cloning into a card to be installed on another Pi.
 #
 echo -n "Hit Enter when ready to unmount the /dev/$DST_DISK partitions..."
-read resp
+read -r resp
 
 echo "unmounting $CLONE/boot"
 umount $CLONE/boot
