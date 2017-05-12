@@ -32,7 +32,7 @@ CLONE=/mnt/clone
 
 CLONE_LOG=/var/log/$PGM.log
 
-HOSTNAME=$(hostnamer)
+HOSTNAME=$(hostname)
 
 SRC_BOOT_PARTITION_TYPE=$(parted /dev/mmcblk0 -ms p | grep "^1" | cut -f 5 -d:)
 SRC_ROOT_PARTITION_TYPE=$(parted /dev/mmcblk0 -ms p | grep "^2" | cut -f 5 -d:)
