@@ -43,6 +43,10 @@ writing many temporary files.
 
 rpi-clone must be run as root and you must have the rsync program installed.
 
+rpi-clone will not cross filesystem boundaries by default - this is normally
+desirable. If you wish to include your mounted drive(s) in the clone,
+use the -c switch.
+
 After rpi-clone is finished with the clone it pauses and asks for confirmation
 before unmounting the cloned to SD card.  This is so you can go look at
 the clone results or make any custom final adjustments if needed.  For example,
