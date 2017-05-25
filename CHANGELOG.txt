@@ -1,0 +1,38 @@
+Version 1.7   2017/05/26
+* Moved extended configuration to /etc/rpi-conf/ & added default config files
+* TODO: Added ability to define own rsync excludes
+* Added installer/updater + uninstaller
+* Moved release notes to seperate changelog
+
+
+Version 1.6   2017/05/24
+* Split rsync into 2 separate processes, 1 for /boot, 1 for rest of filesystem
+* made do not cross filesytem boundaries default behaviour
+* added --cross-filesystems switch to reproduce old behaviour
+
+
+Version 1.5   2016/09/09
+* Remove any leading /dev/ from dest disk.
+* Warn dest disk may be a partition if it ends with a digit.
+
+
+Version 1.4   2016/03/23
+* Use -F on mkfs.ext4 and avoid the question.
+
+
+Version 1.3   2016/03/16
+* don't > /dev/null for the mkfs.ext4 since mkfs can ask a question
+
+
+Version 1.2   2015/02/17
+* add -x option
+* tweak some echo messages
+
+
+Version 1.1   2015/02/16
+* Do not include dphys swapfile in the clone.
+* Add a missing -s flag to one of the parted commands.
+* Dump parted stderr to /dev/null since it now complains about destination
+    disk partitions ending outside of disk before I get chance to resize
+    the partitions.
+* Strip trailing s from PART_START - (fdisk now doesn't seem to accept...)
