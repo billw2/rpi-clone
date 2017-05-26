@@ -33,7 +33,7 @@ necessary.
 The rpi-clone command script is installed at /usr/local/sbin/ and the 
 configuration files are installed at /etc/rpi-clone/
 The installer will not overwrite existing configuration files. If you need
-to install latest config files, simply run the unsinstaller and re-install.
+to install latest config files, simply run the uninstaller and re-install.
 
 
 ## Uninstalling
@@ -50,11 +50,35 @@ The unistaller will place a backup of the configuration files at
 
 ## Usage
 
-rpi-clone must be run as root. Example, to clone to card at sdb...
+rpi-clone must be run as root. Examples...
+
+Usage info:
+
+```
+# rpi-clone --help
+```
+
+To clone to card at sdb:
 
 ```
 # rpi-clone sdb
 ```
+
+To clone card at sdb and force initialization of the disk:
+```
+# rpi-clone sdb -f
+```
+
+As above but also list files as they are synced:
+```
+# rpi-clone sdb -f -v
+```
+
+NB: rpi-clone takes command line switches as individual arguments,
+they cannot be combined as you may do for other linux commands, eg: -fv
+
+
+## Use cases
 
 I use it to maintain backups of several Pi SD cards I have and the destination
 backup SD cards can be a different size (smaller or larger) than the booted
