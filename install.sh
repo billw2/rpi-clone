@@ -1,19 +1,39 @@
-#/bin/sh
+#/bin/bash
 
 # install script for rpi-clone:
 #
+# - checks dependencies: rsync and fsck.vfat
 # - copies rpi-clone to /usr/local/sbin & sets owner/permisions
 # - copies configuration files to /etc/rpi-clone/ if they don't yet exist (will not overwrite existing configuration)
 
 
 #
-# exit if not root
+# check dependencies
 #
+# exit if not root
 if [ `id -u` != 0 ]
 then
-    echo -e "The rpi-clone installer needs to be run as root.\n"
-    exit 1
+	echo -e "The rpi-clone installer needs to be run as root.\n"
+	exit 1
 fi
+# rsync check
+if ! rsync --version > /dev/null
+then
+        echo -e "\nOoops! rpi-clone needs the rsync program but cannot find it."
+        echo "Make sure rsync is installed:"
+        echo "    $ sudo apt-get update"
+        echo -e "    $ sudo apt-get install rsync\n"
+        exit 1
+fi
+# fsck.vfat check
+if ! test -e /sbin/fsck.vfat
+then
+        echo "[Note] fsck.vfat was not found."
+        echo "It is recommended to install dosfstools:"
+        echo "    $ sudo apt-get update"
+        echo -e "    $ sudo apt-get install dosfstools\n"
+	echo "NB: this is recommneded, but rpi-clone will run without it, continuing with install"
+fi 
 
 #
 # get current state

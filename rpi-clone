@@ -29,24 +29,9 @@ then
     exit 1
 fi
 
-if ! rsync --version > /dev/null
-then
-	echo -e "\nOoops! rpi-clone needs the rsync program but cannot find it."
-	echo "Make sure rsync is installed:"
-	echo "    $ sudo apt-get update"
-	echo -e "    $ sudo apt-get install rsync\n"
-	exit 0
-fi
-
 if test -e /sbin/fsck.vfat
 then
 	HAVE_FSCK_VFAT="yes"
-else
-
-	echo "[Note] fsck.vfat was not found."
-	echo "It is recommended to install dosfstools:"
-	echo "    $ sudo apt-get update"
-	echo "    $ sudo apt-get install dosfstools"
 fi
 
 usage()
