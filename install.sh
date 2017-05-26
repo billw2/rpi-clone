@@ -7,6 +7,10 @@
 # - copies configuration files to /etc/rpi-clone/ if they don't yet exist (will not overwrite existing configuration)
 
 
+echo
+echo "Welcome to the rpi-clone installer"
+echo
+
 #
 # check dependencies
 #
@@ -32,8 +36,38 @@ then
         echo "It is recommended to install dosfstools:"
         echo "    $ sudo apt-get update"
         echo -e "    $ sudo apt-get install dosfstools\n"
-	echo "NB: this is recommneded, but rpi-clone will run without it, continuing with install"
-fi 
+	echo "NB: rpi-clone can run without it, continuing with install"
+	echo
+fi
+
+#
+# update repo to get latest, if possible
+#
+if [ -d .git ]; then
+        echo "Looks like your using a git clone - we can automatically update it to get the latest version."
+	echo "Perform a 'git pull origin master' now (yes/no)?:"
+	read resp
+	if [ "$resp" != "y" ] && [ "$resp" != "yes" ]; then
+		echo "Continuing without updating the repo"
+		echo
+        else
+		echo "Updating repo..."
+		git pull origin master
+		if [ $? = 0 ]; then
+			echo "Repo updated sucessfully"
+			echo
+		else
+			echo "Problem updating repo. Aborting!"
+			echo
+			exit 1
+		fi
+	fi
+else
+	echo "Looks like you're not using a git clone, so we cannot update"
+	echo "automatically. You'll need to manually download the zip to get"
+	echo "latest version. If you've just done this - ignore this message!"
+	echo
+fi
 
 #
 # get current state
@@ -63,9 +97,6 @@ fi
 #
 # summarise and get user confirmation
 #
-echo
-echo "Welcome to the rpi-clone installer"
-echo
 if [ "$INSTALL_CONF_DIR" = false -a "$INSTALL_CONF_FILE" = false -a "$INSTALL_EXCLUDES_FILE" = false -a "$INSTALL_RPI_CLONE" = false ]; then
 	echo "Latest $CUR_VERSION already installed and configuration files in place"
 	echo "Nothing to do - exiting!"

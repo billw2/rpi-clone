@@ -26,14 +26,17 @@ $ cd rpi-clone
 $ sudo ./install.sh
 ```
 
-The installer will install or update rpi-clone as necessary and advise you of
-any missing dependencies / recommendations.
-Re-running the installer will not harm your system - it only makes changes as
-necessary.
+This will install or update rpi-clone as necessary and advise you of
+any missing dependencies / recommendations.  
+If you have cloned the repo as above, the installer can automatically 
+perform a `git pull origin master` to update it to latest version. If you 
+have cloned from another source you may or may not want to do this.  
+If you have downloade the zip, you will be prompted to update this manually 
+to ensure you're using latest. 
 The rpi-clone command script is installed at /usr/local/sbin/ and the 
-configuration files are installed at /etc/rpi-clone/
-The installer will not overwrite existing configuration files. If you need
-to install latest config files, simply run the uninstaller and re-install.
+configuration files are installed at /etc/rpi-clone/  
+The installer will not overwrite existing configuration files - if you need
+to install latest config files, simply run the uninstaller and re-install.  
 
 
 ## Uninstalling
