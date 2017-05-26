@@ -8,9 +8,14 @@ if [ -f /etc/rpi-clone/rpi-clone.conf ]
 then
 	. /etc/rpi-clone/rpi-clone.conf
 else
+	echo ""
+	echo "WARNING: /etc/rpi-clone/rpi-clone.conf not found! Proceeding with defaults."
+	echo "Use the installer to remove this message."
 	CLONE=/mnt/clone
 	CLONE_LOG=/var/log/$PGM.log
 	RSYNC_OPTIONS="--force -rltWDEgoptx"
+	# also include standard rsync.excludes if unable to get conf
+	RSYNC_OPTIONS="$RSYNC_OPTIONS --exclude '.gvfs' --exclude '/dev' --exclude '/proc' --exclude '/run' --exclude '/sys' --exclude '/tmp' --exclude 'lost\+found'"
 	RSYNC_EXCLUDES_FILE=""
 	OPTIONAL_MNT_DIRS="clone mnt sda sdb rpi0 rpi1"
 fi
