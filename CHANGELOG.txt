@@ -1,6 +1,6 @@
 Version 1.7   2017/05/26
 * Moved extended configuration to /etc/rpi-conf/ & added default config files
-* TODO: Added ability to define own rsync excludes
+* Added ability to define own rsync excludes
 * Added installer/updater + uninstaller
 * Moved release notes to seperate changelog
 
