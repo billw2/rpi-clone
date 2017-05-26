@@ -1,11 +1,11 @@
-## rpi-clone
+# rpi-clone
 
 rpi-clone is a shell script that will back up (clone using dd and rsync)
 a running Raspberry Pi file system to a destination SD card 'sdN' plugged
 into a Pi USB port (via a USB card reader).
 
 
-### Prerequisites
+## Prerequisites
 
 rpi-clone works on Raspberry Pi distributions which have a VFAT boot
 partition 1 and a Linux root partition 2.  Tested on Raspbian but should
@@ -16,7 +16,7 @@ work on other distributions which have this same two partition structure.
 rpi-clone requires rsync and it is recommended you also have dosfstools
 
 
-### Installing / Updating
+## Installing / Updating
 
 Clone this repo (or download the zip) and run the installer as root...
 
@@ -36,7 +36,7 @@ The installer will not overwrite existing configuration files. If you need
 to install latest config files, simply run the unsinstaller and re-install.
 
 
-### Uninstalling
+## Uninstalling
 
 Run the uninstaller to remove rpi-clone and configuration files.
 
@@ -48,7 +48,7 @@ The unistaller will place a backup of the configuration files at
 /tmp/rpi-clone-bak/ in case you need to restore them.
 
 
-### Usage
+## Usage
 
 rpi-clone must be run as root. Example, to clone to card at sdb...
 
@@ -105,25 +105,26 @@ script that takes my desired Pi hostname as an argument).  Either way, you
 typically might need to change at least these files:
 
 ```
-	/etc/hostname			# I have one of rpi0, rpi0, ...
-	/etc/hosts				# The localhost line should probably be changed
-	/etc/network/interfaces	# If you need to set up a static IP or alias
+/etc/hostname			# I have one of rpi0, rpi0, ...
+/etc/hosts			# The localhost line should probably be changed
+/etc/network/interfaces		# If you need to set up a static IP or alias
 ```
 
 If you cd into the /mnt/clone/tree to make some of these customizations
 or just to look around, don't forget to cd out of the /mnt/clone tree
 before telling rpi-clone to unmount.
 
-### Configuration
+
+## Configuration
 rpi-clone utilises two configration files at /etc/rpi-clone/
 These can be edited to tune rpi-clone for your system.
 Notes on each of the configurable items are included in the files.
 
-**rpi-clone.conf** - main configuration file
-**rsync.excludes** - files/directories to be excluded from the rsync process
++ **rpi-clone.conf** - main configuration file
++ **rsync.excludes** - files/directories to be excluded from the rsync process
 
 
-### Additional Notes
+## Additional Notes
 For a French translation of rpi-clone by Mehdi HAMIDA, go to:
     https://github.com/idem2lyon/rpi-clone
 
@@ -132,6 +133,6 @@ the menu of the desktop GUI:
 	https://www.raspberrypi.org/forums/viewtopic.php?f=29&t=137693&p=914109#p914109
 
 
-### Authors
-**Bill Wilson** - *Original developer* (billw--at--gkrellm.net)
-**Paul Fernihough** - *Contributer* (paul--at--spoddycoder.com)
+## Authors
++ **Bill Wilson** - *Original developer* (billw--at--gkrellm.net)
++ **Paul Fernihough** - *Contributer* (paul--at--spoddycoder.com)
