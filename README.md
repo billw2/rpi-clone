@@ -1,14 +1,64 @@
+## rpi-clone
 
 rpi-clone is a shell script that will back up (clone using dd and rsync)
 a running Raspberry Pi file system to a destination SD card 'sdN' plugged
 into a Pi USB port (via a USB card reader).
 
-I use it to maintain backups of several Pi SD cards I have and the destination
-backup SD cards can be a different size (smaller or larger) than the booted
-SD card.  rpi-clone works on Raspberry Pi distributions which have a VFAT boot
+
+### Prerequisites
+
+rpi-clone works on Raspberry Pi distributions which have a VFAT boot
 partition 1 and a Linux root partition 2.  Tested on Raspbian but should
 work on other distributions which have this same two partition structure.
-rpi-clone does not work with NOOBS.
+
+**PLEASE NOTE: rpi-clone does not work with NOOBS.**
+
+rpi-clone requires rsync and it is recommended you also have dosfstools
+
+
+### Installing / Updating
+
+Clone this repo (or download the zip) and run the installer as root...
+
+```
+$ git clone https://github.com/billw2/rpi-clone.git
+$ cd rpi-clone
+$ sudo ./install.sh
+```
+
+The installer will install or update rpi-clone as necessary and advise you of
+any missing dependencies / recommendations.
+Re-running the installer will not harm your system - it only makes changes as
+necessary.
+The rpi-clone command script is installed at /usr/local/sbin/ and the 
+configuration files are installed at /etc/rpi-clone/
+The installer will not overwrite existing configuration files. If you need
+to install latest config files, simply run the unsinstaller and re-install.
+
+
+### Uninstalling
+
+Run the uninstaller to remove rpi-clone and configuration files.
+
+```
+$ sudo ./uninstall.sh
+```
+
+The unistaller will place a backup of the configuration files at
+/tmp/rpi-clone-bak/ in case you need to restore them.
+
+
+### Usage
+
+rpi-clone must be run as root. Example, to clone to card at sdb...
+
+```
+# rpi-clone sdb
+```
+
+I use it to maintain backups of several Pi SD cards I have and the destination
+backup SD cards can be a different size (smaller or larger) than the booted
+SD card.
 
 rpi-clone can clone the running system to a new SD card or can incrementally
 rsync to existing backup Raspberry Pi SD cards.  During the clone to new SD
@@ -41,8 +91,6 @@ but I find rpi-clone works fine when I run it from a terminal window.
 However I usually do quit my browser first because a browser can be
 writing many temporary files.
 
-rpi-clone must be run as root and you must have the rsync program installed.
-
 rpi-clone will not cross filesystem boundaries by default - this is normally
 desirable. If you wish to include your mounted drive(s) in the clone,
 use the -c switch.
@@ -56,27 +104,26 @@ needed to customize for the second Pi (well, actually I do that with a
 script that takes my desired Pi hostname as an argument).  Either way, you
 typically might need to change at least these files:
 
+```
 	/etc/hostname			# I have one of rpi0, rpi0, ...
 	/etc/hosts				# The localhost line should probably be changed
 	/etc/network/interfaces	# If you need to set up a static IP or alias
+```
 
 If you cd into the /mnt/clone/tree to make some of these customizations
 or just to look around, don't forget to cd out of the /mnt/clone tree
 before telling rpi-clone to unmount.
 
-rpi-clone is on github, to get it and install it to /usr/local/sbin:
-Go to https://github.com/billw2/rpi-clone and download the zip file:
+### Configuration
+rpi-clone utilises two configration files at /etc/rpi-clone/
+These can be edited to tune rpi-clone for your system.
+Notes on each of the configurable items are included in the files.
 
-	$ unzip rpi-clone-master.zip
-	$ cd rpi-clone-master
-	$ cp rpi-clone /usr/local/sbin
+**rpi-clone.conf** - main configuration file
+**rsync.excludes** - files/directories to be excluded from the rsync process
 
-or, use git to clone the repository:
 
-	$ git clone https://github.com/billw2/rpi-clone.git 
-	$ cd rpi-clone
-	$ cp rpi-clone /usr/local/sbin
-
+### Additional Notes
 For a French translation of rpi-clone by Mehdi HAMIDA, go to:
     https://github.com/idem2lyon/rpi-clone
 
@@ -84,5 +131,7 @@ GTR2Fan on the Pi forums has instructions for putting rpi-clone into
 the menu of the desktop GUI:
 	https://www.raspberrypi.org/forums/viewtopic.php?f=29&t=137693&p=914109#p914109
 
-Bill Wilson
-billw--at--gkrellm.net
+
+### Authors
+**Bill Wilson** - *Original developer* (billw--at--gkrellm.net)
+**Paul Fernihough** - *Contributer* (paul--at--spoddycoder.com)
