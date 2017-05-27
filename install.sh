@@ -2,14 +2,45 @@
 
 # install script for rpi-clone:
 #
-# - checks dependencies: rsync and fsck.vfat
+# - updates source repo if possible
+# - checks dependencies: system, rsync and fsck.vfat
 # - copies rpi-clone to /usr/local/sbin & sets owner/permisions
-# - copies configuration files to /etc/rpi-clone/ if they don't yet exist (will not overwrite existing configuration)
+# - copies configuration files to /etc/rpi-clone/ & sets owner/perms
+# 	- only if they don't yet exist (will not overwrite existing configuration)
 
 
 echo
 echo "Welcome to the rpi-clone installer"
 echo
+
+#
+# update repo to get latest, if possible
+#
+if [ -d .git ]; then
+        echo "Looks like your using a git clone - we can automatically update it to get the latest version."
+        echo "Perform a 'git pull origin master' now (yes/no)?:"
+        read resp
+        if [ "$resp" != "y" ] && [ "$resp" != "yes" ]; then
+                echo "Continuing without updating the repo"
+                echo
+        else
+                echo "Updating repo..."
+                git pull origin master
+                if [ $? = 0 ]; then
+                        echo "Repo updated sucessfully"
+                        echo
+                else
+                        echo "Problem updating repo. Aborting!"
+                        echo
+                        exit 1
+                fi
+        fi
+else
+        echo "Looks like you're not using a git clone, so we cannot update"
+        echo "automatically. You'll need to manually download the zip to get"
+        echo "latest version. If you've just done this - ignore this message!"
+        echo
+fi
 
 #
 # check dependencies
@@ -19,6 +50,15 @@ if [ `id -u` != 0 ]
 then
 	echo -e "The rpi-clone installer needs to be run as root.\n"
 	exit 1
+fi
+# system check
+IS_RASPBIAN=`lsb_release -d | grep -i Raspbian`
+if [ -z "$IS_RASPBIAN" -o ! $? = 0 ]; then
+	echo "WARNING: this doesn't look like a Rapsbian system!"
+	echo "Your OS is reported as:"
+	lsb_release -d
+	echo "Please proceed... if you know what you're doing..."
+	echo
 fi
 # rsync check
 if ! rsync --version > /dev/null
@@ -41,35 +81,6 @@ then
 fi
 
 #
-# update repo to get latest, if possible
-#
-if [ -d .git ]; then
-        echo "Looks like your using a git clone - we can automatically update it to get the latest version."
-	echo "Perform a 'git pull origin master' now (yes/no)?:"
-	read resp
-	if [ "$resp" != "y" ] && [ "$resp" != "yes" ]; then
-		echo "Continuing without updating the repo"
-		echo
-        else
-		echo "Updating repo..."
-		git pull origin master
-		if [ $? = 0 ]; then
-			echo "Repo updated sucessfully"
-			echo
-		else
-			echo "Problem updating repo. Aborting!"
-			echo
-			exit 1
-		fi
-	fi
-else
-	echo "Looks like you're not using a git clone, so we cannot update"
-	echo "automatically. You'll need to manually download the zip to get"
-	echo "latest version. If you've just done this - ignore this message!"
-	echo
-fi
-
-#
 # get current state
 #
 INSTALL_RPI_CLONE=true
@@ -77,9 +88,9 @@ CUR_VERSION=0
 INSTALL_CONF_DIR=true
 INSTALL_CONF_FILE=true
 INSTALL_EXCLUDES_FILE=true
-NEW_VERSION=`sudo ./rpi-clone | grep Version | sed 's/^ *//'`
+NEW_VERSION=`./rpi-clone | grep Version | sed 's/^ *//'`
 if [ -f /usr/local/sbin/rpi-clone ]; then
-	CUR_VERSION=`sudo /usr/local/sbin/rpi-clone | grep Version | sed 's/^ *//'`
+	CUR_VERSION=`/usr/local/sbin/rpi-clone | grep Version | sed 's/^ *//'`
 	if [ "$CUR_VERSION" = "$NEW_VERSION" ]; then
 		INSTALL_RPI_CLONE=false
 	fi
@@ -135,28 +146,28 @@ fi
 #
 if $INSTALL_RPI_CLONE; then
 	echo "Installing rpi-clone to /usr/local/sbin/rpi-clone"
-	sudo rm -f /usr/local/sbin/rpi-clone
-	sudo cp ./rpi-clone /usr/local/sbin/rpi-clone
-	sudo chown root:root /usr/local/sbin/rpi-clone
-	sudo chmod u+x /usr/local/sbin/rpi-clone
+	rm -f /usr/local/sbin/rpi-clone
+	cp ./rpi-clone /usr/local/sbin/rpi-clone
+	chown root:root /usr/local/sbin/rpi-clone
+	chmod u+x /usr/local/sbin/rpi-clone
 fi
 
 if $INSTALL_CONF_DIR; then
 	echo "Creating missing configuration directory at /etc/rpi-clone"
-	sudo mkdir /etc/rpi-clone
+	mkdir /etc/rpi-clone
 fi
 
 if $INSTALL_CONF_FILE; then
         echo "Installing missing configuration file at /etc/rpi-clone/rpi-clone.conf"
-        sudo cp ./conf/rpi-clone.conf /etc/rpi-clone/rpi-clone.conf
+        cp ./conf/rpi-clone.conf /etc/rpi-clone/rpi-clone.conf
 fi
 
 if $INSTALL_EXCLUDES_FILE; then
         echo "Installing missing rsync excludes file at /etc/rpi-clone/rsync.excludes"
-        sudo cp ./conf/rsync.excludes /etc/rpi-clone/rsync.excludes
+        cp ./conf/rsync.excludes /etc/rpi-clone/rsync.excludes
 fi
-sudo chown -R root:root /etc/rpi-clone
-sudo chmod -R 755 /etc/rpi-clone
+chown -R root:root /etc/rpi-clone
+chmod -R 755 /etc/rpi-clone
 echo
 echo "Installation complete!"
 echo

@@ -35,14 +35,15 @@ fi
 #
 echo
 if [ -f /usr/local/sbin/rpi-clone ]; then
-	sudo rm -f /usr/local/sbin/rpi-clone
+	rm -f /usr/local/sbin/rpi-clone
 	echo "Deleted: /usr/local/sbin/rpi-clone"
 fi
 if [ -d /etc/rpi-clone/ ]; then
-	sudo rm -rf /tmp/rpi-clone-bak/
-	sudo cp -a /etc/rpi-clone/ /tmp/rpi-clone-bak/
-	sudo rm -rf /etc/rpi-clone
+	rm -rf /tmp/rpi-clone-bak/
+	cp -a /etc/rpi-clone/ /tmp/rpi-clone-bak/
+	rm -rf /etc/rpi-clone
 	echo "Deleted: /etc/rpi-clone/"
+	echo
 	echo "A copy of the config files has been place at /tmp/rpi-clone-bak/"
 fi
 echo
