@@ -5,6 +5,8 @@ VERSION=1.6
 #	* Split rsync into 2 separate processes, 1 for /boot, 1 for rest of filesystem
 #	* made do not cross filesytem boundaries default behaviour
 #	* added --cross-filesystems switch to reproduce old behaviour
+#	* No longer need to manually mkdir optional /mnt directories.
+#	* No longer need to rsync exclude /mnt and /media
 # Version 1.5	2016/09/09
 #	* Remove any leading /dev/ from dest disk.
 #	* Warn dest disk may be a partition if it ends with a digit.
@@ -27,9 +29,6 @@ VERSION=1.6
 PGM=`basename $0`
 
 RSYNC_OPTIONS="--force -rltWDEgoptx"
-
-# List of extra dirs to create under /mnt.
-OPTIONAL_MNT_DIRS="clone mnt sda sdb rpi0 rpi1"
 
 # Where to mount the disk filesystems to be rsynced.
 CLONE=/mnt/clone
@@ -100,6 +99,7 @@ usage()
 	echo ""
 	echo "    By default the rsync operation will not cross filesystem boundaries."
 	echo "    Use the -c switch if you wish to include your mounted drive(s)"
+	echo "    Warning: any disk mounted under /mnt or /media will then be included."
 	echo ""
 	echo "    The SD card destination partitions will be mounted on $CLONE."
 	echo "    A log will be written to $CLONE_LOG."
@@ -467,8 +467,7 @@ rsync $RSYNC_OPTIONS --delete \
 		$EXCLUDE_SWAPFILE \
 		--exclude '.gvfs' \
 		--exclude '/dev' \
-		--exclude '/media' \
-		--exclude '/mnt' \
+		--exclude '/mnt/clone' \
 		--exclude '/proc' \
 		--exclude '/run' \
 		--exclude '/sys' \
@@ -497,14 +496,6 @@ then
 	chmod a+w $CLONE/tmp
 fi
 
-# Some extra optional dirs I create under /mnt
-for i in $OPTIONAL_MNT_DIRS
-do
-	if [ ! -d $CLONE/mnt/$i ]
-	then
-		mkdir $CLONE/mnt/$i
-	fi
-done
 
 rm -f $CLONE/etc/udev/rules.d/70-persistent-net.rules
 
