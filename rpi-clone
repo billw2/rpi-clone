@@ -1,6 +1,10 @@
 #!/bin/bash
 
-VERSION=1.5
+VERSION=1.6
+# Version 1.6	2017/05/24
+#	* Split rsync into 2 separate processes, 1 for /boot, 1 for rest of filesystem
+#	* made do not cross filesytem boundaries default behaviour
+#	* added --cross-filesystems switch to reproduce old behaviour
 # Version 1.5	2016/09/09
 #	* Remove any leading /dev/ from dest disk.
 #	* Warn dest disk may be a partition if it ends with a digit.
@@ -22,7 +26,7 @@ VERSION=1.5
 
 PGM=`basename $0`
 
-RSYNC_OPTIONS="--force -rltWDEgopt"
+RSYNC_OPTIONS="--force -rltWDEgoptx"
 
 # List of extra dirs to create under /mnt.
 OPTIONAL_MNT_DIRS="clone mnt sda sdb rpi0 rpi1"
@@ -66,10 +70,11 @@ fi
 usage()
 	{
 	echo ""
-	echo "usage: $PGM sdN {-f|--force-initialize} {-v|--verbose} {-x}"
+	echo "usage: $PGM sdN {-f|--force-initialize} {-v|--verbose} {-c|--cross-filesystems} {-x}"
 	echo "    Example:  $PGM sda"
 	echo "    -v - list all files as they are copied."
 	echo "    -f - force initialize the destination partitions"
+	echo "    -c - cross filesystem boundaries (include mounted drives)"
 	echo "    -x - use set -x for very verbose bash shell script debugging"
 	echo ""
 	echo "    Clone (rsync) a running Raspberry Pi file system to a destination"
@@ -93,6 +98,9 @@ usage()
 	echo "    The SD card  partitions are then mounted and rsynced to the"
 	echo "    running system."
 	echo ""
+	echo "    By default the rsync operation will not cross filesystem boundaries."
+	echo "    Use the -c switch if you wish to include your mounted drive(s)"
+	echo ""
 	echo "    The SD card destination partitions will be mounted on $CLONE."
 	echo "    A log will be written to $CLONE_LOG."
 	echo "    It's better to avoid running other disk writing programs"
@@ -103,6 +111,7 @@ usage()
 	}
 
 VERBOSE=off
+CROSS_FILESYSTEMS=off
 
 while [ "$1" ]
 do
@@ -113,6 +122,10 @@ do
 			;;
 		-f|--force-initialize)
 			FORCE_INITIALIZE=true
+			;;
+		-c|--cross-filesystems)
+			CROSS_FILESYSTEMS=on
+			RSYNC_OPTIONS=${RSYNC_OPTIONS/x}
 			;;
 		-x)
 			set -x
@@ -377,6 +390,7 @@ echo "Clone destination disk   :  $DST_DISK"
 echo "Clone destination rootfs :  $DST_ROOT_PARTITION ($DST_ROOT_VOL_NAME) on ${CLONE}"
 echo "Clone destination bootfs :  $DST_BOOT_PARTITION on ${CLONE}/boot"
 echo "Verbose mode             :  $VERBOSE"
+echo "Cross filesystems        :  $CROSS_FILESYSTEMS"
 echo "==============================="
 
 
@@ -434,12 +448,19 @@ then
 	EXCLUDE_SWAPFILE="--exclude $SWAPFILE"
 fi
 
+# start sync
+#
 START_TIME=`date '+%H:%M:%S'`
+sync
 
+# /boot rsync
+echo "Starting the /boot rsync to $DST_DISK"
+rsync $RSYNC_OPTIONS --delete /boot/ ${CLONE}/boot/
+
+# rest of filesystem rsync
 # Exclude fuse mountpoint .gvfs, various other mount points, and tmpfs
 # file systems from the rsync.
 #
-sync
 echo "Starting the filesystem rsync to $DST_DISK"
 echo -n "(This may take several minutes)..."
 rsync $RSYNC_OPTIONS --delete \
@@ -453,6 +474,7 @@ rsync $RSYNC_OPTIONS --delete \
 		--exclude '/sys' \
 		--exclude '/tmp' \
 		--exclude 'lost\+found' \
+		--exclude '/boot' \
 	// \
 	$CLONE
 
