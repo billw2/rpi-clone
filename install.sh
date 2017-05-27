@@ -13,6 +13,13 @@ echo
 echo "Welcome to the rpi-clone installer"
 echo
 
+# exit if not root
+if [ `id -u` != 0 ]
+then
+        echo -e "The rpi-clone installer needs to be run as root.\n"
+        exit 1
+fi
+
 #
 # update repo to get latest, if possible
 #
@@ -25,7 +32,7 @@ if [ -d .git ]; then
                 echo
         else
                 echo "Updating repo..."
-                git pull origin master
+		su - `logname` -c "cd `pwd` && git pull origin master"
                 if [ $? = 0 ]; then
                         echo "Repo updated sucessfully"
                         echo
@@ -45,12 +52,6 @@ fi
 #
 # check dependencies
 #
-# exit if not root
-if [ `id -u` != 0 ]
-then
-	echo -e "The rpi-clone installer needs to be run as root.\n"
-	exit 1
-fi
 # system check
 IS_RASPBIAN=`lsb_release -d | grep -i Raspbian`
 if [ -z "$IS_RASPBIAN" -o ! $? = 0 ]; then
