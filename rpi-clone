@@ -17,7 +17,6 @@ else
 	# also include standard rsync.excludes if unable to get conf
 	RSYNC_OPTIONS="$RSYNC_OPTIONS --exclude '.gvfs' --exclude '/dev' --exclude '/proc' --exclude '/run' --exclude '/sys' --exclude '/tmp' --exclude 'lost\+found'"
 	RSYNC_EXCLUDES_FILE=""
-	OPTIONAL_MNT_DIRS="clone mnt sda sdb rpi0 rpi1"
 fi
 
 # setup
@@ -72,6 +71,7 @@ usage()
 	echo ""
 	echo "    By default the rsync operation will not cross filesystem boundaries."
 	echo "    Use the -c switch if you wish to include your mounted drive(s)"
+	echo "    Warning: any disk mounted under /mnt or /media will then be included."
 	echo ""
 	echo "    The SD card destination partitions will be mounted on $CLONE."
 	echo "    A log will be written to $CLONE_LOG."
@@ -435,7 +435,12 @@ rsync $RSYNC_OPTIONS /boot/ ${CLONE}/boot/
 #
 echo "Starting the filesystem rsync to $DST_DISK"
 echo -n "(This may take several minutes)..."
-rsync $RSYNC_OPTIONS --exclude '/boot' $EXCLUDE_SWAPFILE --exclude-from $RSYNC_EXCLUDES_FILE / $CLONE
+rsync $RSYNC_OPTIONS \
+		--exclude '/boot' \
+		$EXCLUDE_SWAPFILE \
+		--exclude-from $RSYNC_EXCLUDES_FILE \
+		// \
+		$CLONE
 
 
 # Fixup some stuff
@@ -455,14 +460,6 @@ then
 	chmod a+w $CLONE/tmp
 fi
 
-# Some extra optional dirs I create under /mnt
-for i in $OPTIONAL_MNT_DIRS
-do
-	if [ ! -d $CLONE/mnt/$i ]
-	then
-		mkdir $CLONE/mnt/$i
-	fi
-done
 
 rm -f $CLONE/etc/udev/rules.d/70-persistent-net.rules
 

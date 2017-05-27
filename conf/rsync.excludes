@@ -1,6 +1,7 @@
 #
 # rpi-clone rsync.excludes file
 # defines files/directories to be excluded from the rsync process
+# see rsync man page for more detail on exclude format/wildcards etc.
 #
 
 # rpi-clone standard excludes
@@ -8,6 +9,7 @@
 #
 .gvfs
 /dev
+/mnt/clone
 /proc
 /run
 /sys
@@ -15,9 +17,7 @@
 lost\+found
 
 
-# user defined excludes
+# place user defined excludes below
 # system specific, eg: application tmp + cache directories
 # NB: mount point excludes are not generally needed as rpi-clone does not cross filesystems by default
 #
-/mnt
-/media

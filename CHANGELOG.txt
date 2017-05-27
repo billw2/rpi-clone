@@ -1,4 +1,4 @@
-Version 1.7   2017/05/26
+Version 1.7   2017/05/27
 * Moved extended configuration to /etc/rpi-conf/ & added default config files
 * Added ability to define own rsync excludes
 * Added installer/updater + uninstaller
@@ -9,6 +9,9 @@ Version 1.6   2017/05/24
 * Split rsync into 2 separate processes, 1 for /boot, 1 for rest of filesystem
 * made do not cross filesytem boundaries default behaviour
 * added --cross-filesystems switch to reproduce old behaviour
+* No longer need to manually mkdir optional /mnt directories.
+* No longer need to rsync exclude /mnt and /media
+* Removed OPTIONAL_MNT_DIRS
 
 
 Version 1.5   2016/09/09
