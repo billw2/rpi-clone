@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # see CHANGELOG.txt for release notes
-VERSION=1.7
+VERSION=1.8
 
 # config
 if [ -f /etc/rpi-clone/rpi-clone.conf ]
@@ -15,7 +15,7 @@ else
 	CLONE_LOG=/var/log/$PGM.log
 	RSYNC_OPTIONS="--force -rltWDEgoptx"
 	# also include standard rsync.excludes if unable to get conf
-	RSYNC_OPTIONS="$RSYNC_OPTIONS --exclude '.gvfs' --exclude '/dev' --exclude '/proc' --exclude '/run' --exclude '/sys' --exclude '/tmp' --exclude 'lost\+found'"
+	RSYNC_OPTIONS="$RSYNC_OPTIONS --exclude '.gvfs' --exclude '/dev' --exclude '/mnt/clone' --exclude '/proc' --exclude '/run' --exclude '/sys' --exclude '/tmp' --exclude 'lost\+found'"
 	RSYNC_EXCLUDES_FILE=""
 fi
 
@@ -156,6 +156,7 @@ then
 		exit 0
 	fi
 fi
+
 
 unmount_or_abort()
 	{
@@ -363,6 +364,14 @@ echo "Clone destination rootfs :  $DST_ROOT_PARTITION ($DST_ROOT_VOL_NAME) on ${
 echo "Clone destination bootfs :  $DST_BOOT_PARTITION on ${CLONE}/boot"
 echo "Verbose mode             :  $VERBOSE"
 echo "Cross filesystems        :  $CROSS_FILESYSTEMS"
+if [ ! -z $HOOK_PRE_SYNC ]
+then
+	echo "Pre sync hook            :  $HOOK_PRE_SYNC"
+fi
+if [ ! -z $HOOK_POST_SYNC ]
+then
+	echo "Post sync hook           :  $HOOK_POST_SYNC"
+fi
 echo "==============================="
 
 
@@ -420,12 +429,32 @@ then
 	EXCLUDE_SWAPFILE="--exclude $SWAPFILE"
 fi
 
+# pre sync script hook
+#
+if [ ! -z $HOOK_PRE_SYNC -a -f $HOOK_PRE_SYNC ]
+then
+	echo
+	echo "Running pre sync script at: $HOOK_PRE_SYNC"
+	# run as subprocess, so it can access all rpi-clone variables and also exit controlled 0 or 1
+	(. $HOOK_PRE_SYNC)
+	if [ ! $? = 0 ]
+	then
+		echo "Error: pre sync script exited with an error code."
+		echo "You may unmount the destination before rpi-clone aborts"
+		unmount_or_abort ${CLONE}/boot
+		unmount_or_abort ${CLONE}
+		echo "Sync aborted!"
+		exit 1
+	fi
+fi
+
 # start sync
 #
 START_TIME=`date '+%H:%M:%S'`
 sync
 
 # /boot rsync
+echo
 echo "Starting the /boot rsync to $DST_DISK"
 rsync $RSYNC_OPTIONS /boot/ ${CLONE}/boot/
 
@@ -473,6 +502,21 @@ echo "$DATE  $HOSTNAME $PGM : clone to $DST_DISK ($DST_ROOT_VOL_NAME)" \
 
 
 STOP_TIME=`date '+%H:%M:%S'`
+
+
+# post sync script hook
+#
+if [ ! -z $HOOK_POST_SYNC -a -f $HOOK_POST_SYNC ]
+then
+        echo
+        echo "Running post sync script at: $HOOK_POST_SYNC"
+        (. $HOOK_POST_SYNC)
+	if [ ! $? = 0 ]
+        then
+                echo "Warning: post sync script exited with an error code."
+        fi
+fi
+
 
 echo ""
 echo "*** Done with clone to /dev/$DST_DISK ***"

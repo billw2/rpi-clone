@@ -160,9 +160,9 @@ before telling rpi-clone to unmount.
 
 
 ## Configuration
-rpi-clone utilises two configuration files at `/etc/rpi-clone/`
+rpi-clone utilises configuration files at `/etc/rpi-clone/`
 These can be edited to tune rpi-clone for your system.
-Notes on each of the configurablitems are included in the files.
+Notes on each of the configurable items are included in the files.
 
 + **rpi-clone.conf** - main configuration file
 + **rsync.excludes** - files/directories to be excluded from the rsync process

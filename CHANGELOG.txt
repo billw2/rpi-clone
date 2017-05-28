@@ -1,3 +1,7 @@
+Vaersion 1.8  2017/05/28
+* Added pre+post sync script hooks
+
+
 Version 1.7   2017/05/27
 * Moved extended configuration to /etc/rpi-conf/ & added default config files
 * Added ability to define own rsync excludes
