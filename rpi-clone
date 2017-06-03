@@ -1,39 +1,26 @@
 #!/bin/bash
 
-VERSION=1.6
-# Version 1.6	2017/05/24
-#	* Split rsync into 2 separate processes, 1 for /boot, 1 for rest of filesystem
-#	* made do not cross filesytem boundaries default behaviour
-#	* added --cross-filesystems switch to reproduce old behaviour
-#	* No longer need to manually mkdir optional /mnt directories.
-#	* No longer need to rsync exclude /mnt and /media
-# Version 1.5	2016/09/09
-#	* Remove any leading /dev/ from dest disk.
-#	* Warn dest disk may be a partition if it ends with a digit.
-# Version 1.4	2016/03/23
-#	* Use -F on mkfs.ext4 and avoid the question.
-# Version 1.3	2016/03/16
-#	* don't > /dev/null for the mkfs.ext4 since mkfs can ask a question
-# Version 1.2	2015/02/17
-#	* add -x option
-#	* tweak some echo messages
-# Version 1.1	2015/02/16
-#	* Do not include dphys swapfile in the clone.
-#	* Add a missing -s flag to one of the parted commands.
-#	* Dump parted stderr to /dev/null since it now complains about destination
-#	    disk partitions ending outside of disk before I get chance to resize
-#	    the partitions.
-#	* Strip trailing s from PART_START - (fdisk now doesn't seem to accept...)
-#
+# see CHANGELOG.txt for release notes
+VERSION=1.8
 
+# config
+if [ -f /etc/rpi-clone/rpi-clone.conf ]
+then
+	. /etc/rpi-clone/rpi-clone.conf
+else
+	echo ""
+	echo "WARNING: /etc/rpi-clone/rpi-clone.conf not found! Proceeding with defaults."
+	echo "Use the installer to remove this message."
+	CLONE=/mnt/clone
+	CLONE_LOG=/var/log/$PGM.log
+	RSYNC_OPTIONS="--force -rltWDEgoptx"
+	# also include standard rsync.excludes if unable to get conf
+	RSYNC_OPTIONS="$RSYNC_OPTIONS --exclude '.gvfs' --exclude '/dev' --exclude '/mnt/clone' --exclude '/proc' --exclude '/run' --exclude '/sys' --exclude '/tmp' --exclude 'lost\+found'"
+	RSYNC_EXCLUDES_FILE=""
+fi
+
+# setup
 PGM=`basename $0`
-
-RSYNC_OPTIONS="--force -rltWDEgoptx"
-
-# Where to mount the disk filesystems to be rsynced.
-CLONE=/mnt/clone
-
-CLONE_LOG=/var/log/$PGM.log
 
 HOSTNAME=`hostname`
 
@@ -46,24 +33,9 @@ then
     exit 1
 fi
 
-if ! rsync --version > /dev/null
-then
-	echo -e "\nOoops! rpi-clone needs the rsync program but cannot find it."
-	echo "Make sure rsync is installed:"
-	echo "    $ sudo apt-get update"
-	echo -e "    $ sudo apt-get install rsync\n"
-	exit 0
-fi
-
 if test -e /sbin/fsck.vfat
 then
 	HAVE_FSCK_VFAT="yes"
-else
-
-	echo "[Note] fsck.vfat was not found."
-	echo "It is recommended to install dosfstools:"
-	echo "    $ sudo apt-get update"
-	echo "    $ sudo apt-get install dosfstools"
 fi
 
 usage()
@@ -184,6 +156,7 @@ then
 		exit 0
 	fi
 fi
+
 
 unmount_or_abort()
 	{
@@ -391,6 +364,14 @@ echo "Clone destination rootfs :  $DST_ROOT_PARTITION ($DST_ROOT_VOL_NAME) on ${
 echo "Clone destination bootfs :  $DST_BOOT_PARTITION on ${CLONE}/boot"
 echo "Verbose mode             :  $VERBOSE"
 echo "Cross filesystems        :  $CROSS_FILESYSTEMS"
+if [ ! -z $HOOK_PRE_SYNC ]
+then
+	echo "Pre sync hook            :  $HOOK_PRE_SYNC"
+fi
+if [ ! -z $HOOK_POST_SYNC ]
+then
+	echo "Post sync hook           :  $HOOK_POST_SYNC"
+fi
 echo "==============================="
 
 
@@ -448,14 +429,34 @@ then
 	EXCLUDE_SWAPFILE="--exclude $SWAPFILE"
 fi
 
+# pre sync script hook
+#
+if [ ! -z $HOOK_PRE_SYNC -a -f $HOOK_PRE_SYNC ]
+then
+	echo
+	echo "Running pre sync script at: $HOOK_PRE_SYNC"
+	# run as subprocess, so it can access all rpi-clone variables and also exit controlled 0 or 1
+	(. $HOOK_PRE_SYNC)
+	if [ ! $? = 0 ]
+	then
+		echo "Error: pre sync script exited with an error code."
+		echo "You may unmount the destination before rpi-clone aborts"
+		unmount_or_abort ${CLONE}/boot
+		unmount_or_abort ${CLONE}
+		echo "Sync aborted!"
+		exit 1
+	fi
+fi
+
 # start sync
 #
 START_TIME=`date '+%H:%M:%S'`
 sync
 
 # /boot rsync
+echo
 echo "Starting the /boot rsync to $DST_DISK"
-rsync $RSYNC_OPTIONS --delete /boot/ ${CLONE}/boot/
+rsync $RSYNC_OPTIONS /boot/ ${CLONE}/boot/
 
 # rest of filesystem rsync
 # Exclude fuse mountpoint .gvfs, various other mount points, and tmpfs
@@ -463,20 +464,12 @@ rsync $RSYNC_OPTIONS --delete /boot/ ${CLONE}/boot/
 #
 echo "Starting the filesystem rsync to $DST_DISK"
 echo -n "(This may take several minutes)..."
-rsync $RSYNC_OPTIONS --delete \
-		$EXCLUDE_SWAPFILE \
-		--exclude '.gvfs' \
-		--exclude '/dev' \
-		--exclude '/mnt/clone' \
-		--exclude '/proc' \
-		--exclude '/run' \
-		--exclude '/sys' \
-		--exclude '/tmp' \
-		--exclude 'lost\+found' \
+rsync $RSYNC_OPTIONS \
 		--exclude '/boot' \
-	// \
-	$CLONE
-
+		$EXCLUDE_SWAPFILE \
+		--exclude-from $RSYNC_EXCLUDES_FILE \
+		// \
+		$CLONE
 
 
 # Fixup some stuff
@@ -509,6 +502,21 @@ echo "$DATE  $HOSTNAME $PGM : clone to $DST_DISK ($DST_ROOT_VOL_NAME)" \
 
 
 STOP_TIME=`date '+%H:%M:%S'`
+
+
+# post sync script hook
+#
+if [ ! -z $HOOK_POST_SYNC -a -f $HOOK_POST_SYNC ]
+then
+        echo
+        echo "Running post sync script at: $HOOK_POST_SYNC"
+        (. $HOOK_POST_SYNC)
+	if [ ! $? = 0 ]
+        then
+                echo "Warning: post sync script exited with an error code."
+        fi
+fi
+
 
 echo ""
 echo "*** Done with clone to /dev/$DST_DISK ***"
