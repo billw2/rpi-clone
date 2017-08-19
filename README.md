@@ -1,40 +1,40 @@
 
 rpi-clone is a shell script that will back up (clone using dd and rsync)
-a running Raspberry Pi file system to a destination SD card 'sdN' plugged
-into a Pi USB port (via a USB card reader).
+a running Raspberry Pi file system to a destination SD card (via a USB card
+reader) or USB disk 'sdN' plugged into a Pi USB port
 
 I use it to maintain backups of several Pi SD cards I have and the destination
-backup SD cards can be a different size (smaller or larger) than the booted
-SD card.  rpi-clone works on Raspberry Pi distributions which have a VFAT boot
-partition 1 and a Linux root partition 2.  Tested on Raspbian but should
-work on other distributions which have this same two partition structure.
-rpi-clone does not work with NOOBS.
+backup SD cards/USB disks can be a different size (smaller or larger) than
+the booted SD card or USB disk.  rpi-clone works on Raspberry Pi distributions
+which have a VFAT boot partition 1 and a Linux root partition 2.  Tested on
+Raspbian but should work on other distributions which have this same two
+partition structure.  rpi-clone does not work with NOOBS.
 
-rpi-clone can clone the running system to a new SD card or can incrementally
-rsync to existing backup Raspberry Pi SD cards.  During the clone to new SD
-cards, rpi-clone gives you the opportunity to give a label name to the
-partition 2 so you can keep track of which SD cards have been backed up.
-Just stick a correspondingly named sticky label on each SD card you have
-and you can look up the last clone date for that card in the rpi-clone log file
-/var/log/rpi-clone.  My convention for my set of cards is to name 8GB cards:
+rpi-clone can clone the running system to a new SD card/USB disk or can
+incrementally rsync to existing backup Raspberry Pi disks.  During the clone
+to new disks, rpi-clone gives you the opportunity to give a label name to the
+partition 2 so you can keep track of which disks have been backed up.
+Just stick a correspondingly named sticky label on each disk you have
+and you can look up the last clone date for that backup in the rpi-clone log
+file /var/log/rpi-clone.  My convention is to name 8GB SD cards:
 	SD-RPI-8A, SD-RPI-8B, ...
 and similarly, 4GB cards:
 	SD-RPI-4A, ...
 
-If the destination SD card has an existing partition 1 and partition 2
+If the destination disk has an existing partition 1 and partition 2
 matching the running partition types, rpi-clone assumes (unless using the
--f option) that the SD card is an existing backup with the partitions
+-f option) that the destination is an existing backup with the partitions
 properly sized and set up for a Raspberry Pi.  All that is needed
 is to mount the partitions and rsync them to the running system.
 
 If these partitions are not found (or -f), then rpi-clone will ask
-if it is OK to initialize the destination SD card partitions.
+if it is OK to initialize the destination disk partitions.
 This is done by a partial 'dd' from the running booted device /dev/mmcblk0
-to the destination SD card /dev/sdN followed by a fdisk resize and mkfs.ext4
-of /dev/sdN partition 2.  This creates a completed partition 1 containing
-all boot files and an empty but properly sized partition 2 rootfs.
-The SD card  partitions are then mounted on /mnt/clone and rsynced to the
-running system.
+(or /dev/sd? for a USB boot) to the destination disk /dev/sdN followed by a
+fdisk resize and mkfs.ext4 of /dev/sdN partition 2.  This creates a completed
+partition 1 containing all boot files and an empty but properly sized
+partition 2 rootfs.  The destination partitions are then mounted on /mnt/clone
+and rsynced to the running system.
 
 You should avoid running other disk writing programs when running rpi-clone,
 but I find rpi-clone works fine when I run it from a terminal window.
@@ -49,7 +49,7 @@ use the -c switch.  But use this option with caution since any disk mounted
 under /mnt or /media will be included in the clone.
 
 After rpi-clone is finished with the clone it pauses and asks for confirmation
-before unmounting the cloned to SD card.  This is so you can go look at
+before unmounting the cloned to SD card/USB disk.  This is so you can go look at
 the clone results or make any custom final adjustments if needed.  For example,
 I have a couple of Raspberry Pis and I use one as a master.  When I clone for
 the benefit of the second Pi, I do a "cd /mnt/clone/etc" and fix the files

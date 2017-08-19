@@ -1,6 +1,9 @@
 #!/bin/bash
 
-VERSION=1.6
+VERSION=1.7
+# Version 1.7	2017/08/19
+#	* For cloning from USB boots, source disk is booted disk from mtab instead
+#	  of hardwiring mmcblk0.  Add -s option to override the auto source disk.
 # Version 1.6	2017/05/24
 #	* Split rsync into 2 separate processes, 1 for /boot, 1 for rest of filesystem
 #	* made do not cross filesytem boundaries default behaviour
@@ -37,8 +40,15 @@ CLONE_LOG=/var/log/$PGM.log
 
 HOSTNAME=`hostname`
 
-SRC_BOOT_PARTITION_TYPE=`parted /dev/mmcblk0 -ms p | grep "^1" | cut -f 5 -d:`
-SRC_ROOT_PARTITION_TYPE=`parted /dev/mmcblk0 -ms p | grep "^2" | cut -f 5 -d:`
+SRC_BOOT_PARTITION=`fgrep " /boot " /etc/mtab | cut -f 1 -d ' ' `
+SRC_DISK=${SRC_BOOT_PARTITION:5:3}
+if [ "$SRC_DISK" == "mmc" ]
+then
+	SRC_DISK=mmcblk0
+	SRC_ROOT=mmcblk0p2
+else
+	SRC_ROOT=${SRC_DISK}2
+fi
 
 if [ `id -u` != 0 ]
 then
@@ -69,39 +79,48 @@ fi
 usage()
 	{
 	echo ""
-	echo "usage: $PGM sdN {-f|--force-initialize} {-v|--verbose} {-c|--cross-filesystems} {-x}"
-	echo "    Example:  $PGM sda"
+	echo "usage: $PGM sdN {-v|--verbose} {-f|--force-initialize} {-s|--src-disk sdS} {-c|--cross-filesystems} {-x}"
 	echo "    -v - list all files as they are copied."
 	echo "    -f - force initialize the destination partitions"
+	echo "    -s sdS - specify sdS is the booted source disk to clone from."
+	echo "         Use this if the boot source auto detect from /etc/mtab fails."
 	echo "    -c - cross filesystem boundaries (include mounted drives)"
 	echo "    -x - use set -x for very verbose bash shell script debugging"
 	echo ""
-	echo "    Clone (rsync) a running Raspberry Pi file system to a destination"
-	echo "    SD card 'sdN' plugged into a Pi USB port (via a USB card reader)."
-	echo "    $PGM can clone the running system to a new SD card or can"
-	echo "    incrementally rsync to existing backup Raspberry Pi SD cards."
+	echo "    Example:  $PGM sda"
+	echo "        Clones from booted SD card mmcblk0 or booted USB disk sd? to sda."
+	echo "        The booted disk is automatically determined from /etc/mtab."
+	echo "    Example:  $PGM -s sda sdb"
+	echo "        Use sda as the booted source disk to clone from."
+	echo "        Use this if the auto detect of the booted sda disk fails"
 	echo ""
-	echo "    If the destination SD card has an existing $SRC_BOOT_PARTITION_TYPE partition 1 and a"
+	echo "    Clone (rsync) a running Raspberry Pi file system to a destination"
+	echo "    SD card (in a USB card reader) or USB disk 'sdN' plugged into a"
+	echo "    Pi USB port."
+	echo "    $PGM can clone to a new SD card/USB disk which will be initialized"
+	echo "    or can incrementally rsync to previously backed up SD cards/USB disks."
+	echo ""
+	echo "    If the destination disk has an existing $SRC_BOOT_PARTITION_TYPE partition 1 and a"
 	echo "    $SRC_ROOT_PARTITION_TYPE partition 2, $PGM assumes (unless using the -f option)"
-	echo "    that the SD card is an existing backup with the partitions"
+	echo "    that the destination is an existing backup with the partitions"
 	echo "    properly sized and set up for a Raspberry Pi.  All that is needed"
 	echo "    is to mount the partitions and rsync them to the running system."
 	echo ""
 	echo "    If these partitions are not found (or -f), then $PGM will ask"
-	echo "    if it is OK to initialize the destination SD card partitions."
-	echo "    This is done by a partial 'dd' from the running booted device"
-	echo "    /dev/mmcblk0 to the destination SD card /dev/sdN followed by a"
-	echo "    fdisk resize and mkfs.ext4 of /dev/sdN partition 2."
+	echo "    if it is OK to initialize the destination disk partitions."
+	echo "    This is done by a partial 'dd' from the booted source disk (currently"
+	echo "    /dev/$SRC_DISK) to the destination SD card /dev/sdN followed"
+	echo "    by a fdisk resize and mkfs.ext4 of /dev/sdN partition 2."
 	echo "    This creates a completed $SRC_BOOT_PARTITION_TYPE partition 1 containing all boot"
 	echo "    files and an empty but properly sized partition 2 rootfs."
-	echo "    The SD card  partitions are then mounted and rsynced to the"
+	echo "    The destination partitions are then mounted and rsynced to the"
 	echo "    running system."
 	echo ""
 	echo "    By default the rsync operation will not cross filesystem boundaries."
 	echo "    Use the -c switch if you wish to include your mounted drive(s)"
 	echo "    Warning: any disk mounted under /mnt or /media will then be included."
 	echo ""
-	echo "    The SD card destination partitions will be mounted on $CLONE."
+	echo "    The destination partitions will be mounted on $CLONE."
 	echo "    A log will be written to $CLONE_LOG."
 	echo "    It's better to avoid running other disk writing programs"
 	echo "    when running $PGM."
@@ -112,6 +131,7 @@ usage()
 
 VERBOSE=off
 CROSS_FILESYSTEMS=off
+
 
 while [ "$1" ]
 do
@@ -126,6 +146,10 @@ do
 		-c|--cross-filesystems)
 			CROSS_FILESYSTEMS=on
 			RSYNC_OPTIONS=${RSYNC_OPTIONS/x}
+			;;
+		-s|--src-disk)
+			shift
+			SRC_DISK=$1
 			;;
 		-x)
 			set -x
@@ -145,9 +169,17 @@ do
 	shift
 done
 
+SRC_BOOT_PARTITION_TYPE=`parted /dev/$SRC_DISK -ms p | grep "^1" | cut -f 5 -d:`
+SRC_ROOT_PARTITION_TYPE=`parted /dev/$SRC_DISK -ms p | grep "^2" | cut -f 5 -d:`
+
+#echo $SRC_DISK to $DST_DISK
+#echo $SRC_BOOT_PARTITION_TYPE
+#echo $SRC_ROOT_PARTITION_TYPE
 
 if [ "$DST_DISK" = "" ]
 then
+	echo "No destination disk specified."
+	echo ""
 	usage
 	exit 0
 fi
@@ -254,7 +286,7 @@ expand_rootfs()
 	{
 	# Get the starting offset of the root partition
 	# (with Jessie's parted, now need to strip trailing 's' from PART_START)
-	PART_START=$(parted /dev/mmcblk0 -ms unit s p  \
+	PART_START=$(parted /dev/$SRC_DISK -ms unit s p  \
 			| grep "^2" | cut -f 2 -d: | cut -f 1 -d s)
 	[ "$PART_START" ] || return 1
 	# Return value will likely be error for fdisk as it fails to reload the
@@ -296,12 +328,12 @@ then
 	then
 		echo "Forcing a partition initialization of destination disk $DST_DISK"
 	else
-		echo "The destination disk $DST_DISK partition table does not"
-		echo "match the booted disk /dev/mmcblk0 partition table so a"
-		echo "destination disk initialize is required."
+		echo "Source disk     : $SRC_DISK"
+		echo "Destination disk: $DST_DISK"
+		echo "   Partition tables do not match, $DST_DISK must be initialized."
 	fi
 
-	echo "The existing destination disk '$DST_DISK' partitions are:"
+	echo "$DST_DISK current partitions are:"
 	parted /dev/$DST_DISK -s unit MB p 2>/dev/null \
 		| sed "/^Model/d ; /^Sector/d ; /^Disk Flags/d"
 
@@ -322,11 +354,11 @@ then
 	if [ "$resp" = "y" ] || [ "$resp" = "yes" ]
 	then
 		# Image onto the destination disk a beginning fragment of the
-		# running SD card file structure that spans at least more than
+		# running SD card/USB disk file structure that spans at least more than
 		# the start of partition 2.
 		#
 		# Calculate the start of partition 2 in MB for the dd.
-		PART2_START=$(parted /dev/mmcblk0 -ms unit MB p | grep "^2" \
+		PART2_START=$(parted /dev/$SRC_DISK -ms unit MB p | grep "^2" \
 				| cut -f 2 -d: | sed s/MB// | tr "," "." | cut -f 1 -d.)
 		# and add some slop
 		DD_COUNT=`expr $PART2_START + 8`
@@ -334,7 +366,7 @@ then
 		echo ""
 		echo "Imaging the partition structure, copying $DD_COUNT megabytes..."
 		sync
-		dd if=/dev/mmcblk0 of=/dev/$DST_DISK bs=1M count=$DD_COUNT
+		dd if=/dev/$SRC_DISK of=/dev/$DST_DISK bs=1M count=$DD_COUNT
 
 		# Partition was copied live so fsck to clean up for possible future
 		# "Volume was not properly unmounted" warnings.
@@ -358,14 +390,14 @@ then
 		parted /dev/$DST_DISK unit MB p \
 			| sed "/^Model/d ; /^Sector/d ; /^Disk Flags/d"
 
-		SRC_ROOT_VOL_NAME=`e2label /dev/mmcblk0p2`
+		SRC_ROOT_VOL_NAME=`e2label /dev/$SRC_ROOT`
 		echo ""
-		echo "Your booted /dev/mmcblk0p2 rootfs existing label: $SRC_ROOT_VOL_NAME"
+		echo "Your booted /dev/$SRC_ROOT rootfs existing label: $SRC_ROOT_VOL_NAME"
 		echo -n "You may enter a label for the destination rootfs $DST_ROOT_PARTITION: "
 		read resp
 		if [ "$resp" != "" ]
 		then
-			e2label $DST_ROOT_PARTITION $resp
+			e2label $DST_ROOT_PARTITION "$resp"
 		fi
 	else
 		echo -e "Aborting\n"
@@ -386,6 +418,7 @@ fi
 echo ""
 echo "======== Clone Summary ========"
 echo "Clone mode               :  $CLONE_MODE"
+echo "Clone source disk        :  $SRC_DISK"
 echo "Clone destination disk   :  $DST_DISK"
 echo "Clone destination rootfs :  $DST_ROOT_PARTITION ($DST_ROOT_VOL_NAME) on ${CLONE}"
 echo "Clone destination bootfs :  $DST_BOOT_PARTITION on ${CLONE}/boot"
