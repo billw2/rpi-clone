@@ -1,6 +1,8 @@
 #!/bin/bash
 
-VERSION=1.7
+VERSION=1.7.1
+# Version 1.7.1	2017/08/19
+#	* Bugfix: did not set SRC_ROOT when using -s option
 # Version 1.7	2017/08/19
 #	* For cloning from USB boots, source disk is booted disk from mtab instead
 #	  of hardwiring mmcblk0.  Add -s option to override the auto source disk.
@@ -84,6 +86,7 @@ usage()
 	echo "    -f - force initialize the destination partitions"
 	echo "    -s sdS - specify sdS is the booted source disk to clone from."
 	echo "         Use this if the boot source auto detect from /etc/mtab fails."
+	echo "         Use with caution, be sure sdS is really the booted disk."
 	echo "    -c - cross filesystem boundaries (include mounted drives)"
 	echo "    -x - use set -x for very verbose bash shell script debugging"
 	echo ""
@@ -92,7 +95,7 @@ usage()
 	echo "        The booted disk is automatically determined from /etc/mtab."
 	echo "    Example:  $PGM -s sda sdb"
 	echo "        Use sda as the booted source disk to clone from."
-	echo "        Use this if the auto detect of the booted sda disk fails"
+	echo "        Use this if the auto detect of the booted sda disk fails."
 	echo ""
 	echo "    Clone (rsync) a running Raspberry Pi file system to a destination"
 	echo "    SD card (in a USB card reader) or USB disk 'sdN' plugged into a"
@@ -150,6 +153,12 @@ do
 		-s|--src-disk)
 			shift
 			SRC_DISK=$1
+			if [ "$SRC_DISK" == "mmcblk0" ]
+			then
+				SRC_ROOT=${SRC_DISK}p2
+			else
+				SRC_ROOT=${SRC_DISK}2
+			fi
 			;;
 		-x)
 			set -x
@@ -172,7 +181,7 @@ done
 SRC_BOOT_PARTITION_TYPE=`parted /dev/$SRC_DISK -ms p | grep "^1" | cut -f 5 -d:`
 SRC_ROOT_PARTITION_TYPE=`parted /dev/$SRC_DISK -ms p | grep "^2" | cut -f 5 -d:`
 
-#echo $SRC_DISK to $DST_DISK
+#echo $SRC_DISK to $DST_DISK  SRC_ROOT: $SRC_ROOT
 #echo $SRC_BOOT_PARTITION_TYPE
 #echo $SRC_ROOT_PARTITION_TYPE
 
