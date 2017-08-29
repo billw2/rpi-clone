@@ -90,7 +90,7 @@ usage()
 	echo "         Use this if the boot source auto detect from /etc/mtab fails."
 	echo "         Use with caution, be sure sdS is really the booted disk."
 	echo "    -c - cross filesystem boundaries (include mounted drives)"
-	echo "    -H - set hostname of cloned pi
+	echo "    -H - set hostname of cloned pi"
 	echo "    -x - use set -x for very verbose bash shell script debugging"
 	echo ""
 	echo "    Example:  $PGM sda"
