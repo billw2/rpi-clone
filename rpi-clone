@@ -560,7 +560,7 @@ echo "$DATE  $HOSTNAME $PGM : clone to $DST_DISK ($DST_ROOT_VOL_NAME)" \
 if [ "$SET_HOSTNAME" = "on" ]
 then
 	echo $NEW_HOSTNAME > $CLONE/etc/hostname
-	sed -i "s/$HOSTNAME/$NEW_HOSTNAME/" $CLONE/etc/hostname
+	sed -i "s/$HOSTNAME/$NEW_HOSTNAME/" $CLONE/etc/hosts
 fi
 
 
