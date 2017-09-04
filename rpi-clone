@@ -1,6 +1,8 @@
 #!/bin/bash
 
-VERSION=1.7.1
+VERSION=1.7.2
+# Version 1.7.2 2017/08/29
+# 	* Adding option to set hostname on clone
 # Version 1.7.1	2017/08/19
 #	* Bugfix: did not set SRC_ROOT when using -s option
 # Version 1.7	2017/08/19
@@ -81,13 +83,14 @@ fi
 usage()
 	{
 	echo ""
-	echo "usage: $PGM sdN {-v|--verbose} {-f|--force-initialize} {-s|--src-disk sdS} {-c|--cross-filesystems} {-x}"
+	echo "usage: $PGM sdN {-v|--verbose} {-f|--force-initialize} {-s|--src-disk sdS} {-c|--cross-filesystems} {-H|--set-hostname hostname} {-x}"
 	echo "    -v - list all files as they are copied."
 	echo "    -f - force initialize the destination partitions"
 	echo "    -s sdS - specify sdS is the booted source disk to clone from."
 	echo "         Use this if the boot source auto detect from /etc/mtab fails."
 	echo "         Use with caution, be sure sdS is really the booted disk."
 	echo "    -c - cross filesystem boundaries (include mounted drives)"
+	echo "    -H - set hostname of cloned pi"
 	echo "    -x - use set -x for very verbose bash shell script debugging"
 	echo ""
 	echo "    Example:  $PGM sda"
@@ -159,6 +162,11 @@ do
 			else
 				SRC_ROOT=${SRC_DISK}2
 			fi
+			;;
+		-H|--set-hostname)
+			shift
+			NEW_HOSTNAME=$1
+			SET_HOSTNAME=on
 			;;
 		-x)
 			set -x
@@ -548,6 +556,12 @@ echo "$DATE  $HOSTNAME $PGM : clone to $DST_DISK ($DST_ROOT_VOL_NAME)" \
 		>> $CLONE_LOG
 echo "$DATE  $HOSTNAME $PGM : clone to $DST_DISK ($DST_ROOT_VOL_NAME)" \
 		>> $CLONE/$CLONE_LOG
+		
+if [ "$SET_HOSTNAME" = "on" ]
+then
+	echo $NEW_HOSTNAME > $CLONE/etc/hostname
+	sed -i "s/$HOSTNAME/$NEW_HOSTNAME/" $CLONE/etc/hosts
+fi
 
 
 STOP_TIME=`date '+%H:%M:%S'`
