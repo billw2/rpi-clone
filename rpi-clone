@@ -1,56 +1,11 @@
 #!/bin/bash
 
-VERSION=1.7.1
-# Version 1.7.1	2017/08/19
-#	* Bugfix: did not set SRC_ROOT when using -s option
-# Version 1.7	2017/08/19
-#	* For cloning from USB boots, source disk is booted disk from mtab instead
-#	  of hardwiring mmcblk0.  Add -s option to override the auto source disk.
-# Version 1.6	2017/05/24
-#	* Split rsync into 2 separate processes, 1 for /boot, 1 for rest of filesystem
-#	* made do not cross filesytem boundaries default behaviour
-#	* added --cross-filesystems switch to reproduce old behaviour
-#	* No longer need to manually mkdir optional /mnt directories.
-#	* No longer need to rsync exclude /mnt and /media
-# Version 1.5	2016/09/09
-#	* Remove any leading /dev/ from dest disk.
-#	* Warn dest disk may be a partition if it ends with a digit.
-# Version 1.4	2016/03/23
-#	* Use -F on mkfs.ext4 and avoid the question.
-# Version 1.3	2016/03/16
-#	* don't > /dev/null for the mkfs.ext4 since mkfs can ask a question
-# Version 1.2	2015/02/17
-#	* add -x option
-#	* tweak some echo messages
-# Version 1.1	2015/02/16
-#	* Do not include dphys swapfile in the clone.
-#	* Add a missing -s flag to one of the parted commands.
-#	* Dump parted stderr to /dev/null since it now complains about destination
-#	    disk partitions ending outside of disk before I get chance to resize
-#	    the partitions.
-#	* Strip trailing s from PART_START - (fdisk now doesn't seem to accept...)
-#
+version=2.0.0
 
 PGM=`basename $0`
+setup_command="$PGM-setup"
 
-RSYNC_OPTIONS="--force -rltWDEgoptx"
-
-# Where to mount the disk filesystems to be rsynced.
-CLONE=/mnt/clone
-
-CLONE_LOG=/var/log/$PGM.log
-
-HOSTNAME=`hostname`
-
-SRC_BOOT_PARTITION=`fgrep " /boot " /etc/mtab | cut -f 1 -d ' ' `
-SRC_DISK=${SRC_BOOT_PARTITION:5:3}
-if [ "$SRC_DISK" == "mmc" ]
-then
-	SRC_DISK=mmcblk0
-	SRC_ROOT=mmcblk0p2
-else
-	SRC_ROOT=${SRC_DISK}2
-fi
+rsync_options="--force -rltWDEgoptx"
 
 if [ `id -u` != 0 ]
 then
@@ -58,520 +13,1261 @@ then
     exit 1
 fi
 
-if ! rsync --version > /dev/null
+confirm()
+	{
+	if ((unattended || (initialize && Unattended) ))
+	then
+		return 0
+	fi
+	printf "\n%s  (yes/no): " "$1"
+	read resp
+	if [ "$resp" = "y" ] || [ "$resp" = "yes" ]
+	then
+		return 0
+	fi
+	if [ "$2" == "abort" ]
+	then
+		echo -e "Aborting!\n"
+		exit 0
+	fi
+	return 1
+	}
+
+commands="rsync parted fdisk findmnt column fsck.vfat"
+packages="rsync parted util-linux mount bsdmainutils dosfstools"
+need_packages=""
+
+idx=1
+for cmd in $commands
+do
+	if ! command -v $cmd > /dev/null
+	then
+		pkg=$(echo "$packages" | cut -d " " -f $idx)
+		printf "%-30s %s\n" "Command not found: $cmd" "Package required: $pkg"
+		need_packages="$need_packages $pkg"
+	fi
+	((++idx))
+done
+
+if [ "$need_packages" != "" ]
 then
-	echo -e "\nOoops! rpi-clone needs the rsync program but cannot find it."
-	echo "Make sure rsync is installed:"
-	echo "    $ sudo apt-get update"
-	echo -e "    $ sudo apt-get install rsync\n"
-	exit 0
+	confirm "Do you want to apt-get install the packages?" "abort"
+	apt-get install -y --no-install-recommends $need_packages
 fi
 
-if test -e /sbin/fsck.vfat
-then
-	HAVE_FSCK_VFAT="yes"
-else
+clone=/mnt/clone
+clone_src=/mnt/clone-src
+clone_log=/var/log/$PGM.log
 
-	echo "[Note] fsck.vfat was not found."
-	echo "It is recommended to install dosfstools:"
-	echo "    $ sudo apt-get update"
-	echo "    $ sudo apt-get install dosfstools"
-fi
+HOSTNAME=`hostname`
+
 
 usage()
 	{
-	echo ""
-	echo "usage: $PGM sdN {-v|--verbose} {-f|--force-initialize} {-s|--src-disk sdS} {-c|--cross-filesystems} {-x}"
-	echo "    -v - list all files as they are copied."
-	echo "    -f - force initialize the destination partitions"
-	echo "    -s sdS - specify sdS is the booted source disk to clone from."
-	echo "         Use this if the boot source auto detect from /etc/mtab fails."
-	echo "         Use with caution, be sure sdS is really the booted disk."
-	echo "    -c - cross filesystem boundaries (include mounted drives)"
-	echo "    -x - use set -x for very verbose bash shell script debugging"
-	echo ""
-	echo "    Example:  $PGM sda"
-	echo "        Clones from booted SD card mmcblk0 or booted USB disk sd? to sda."
-	echo "        The booted disk is automatically determined from /etc/mtab."
-	echo "    Example:  $PGM -s sda sdb"
-	echo "        Use sda as the booted source disk to clone from."
-	echo "        Use this if the auto detect of the booted sda disk fails."
-	echo ""
-	echo "    Clone (rsync) a running Raspberry Pi file system to a destination"
-	echo "    SD card (in a USB card reader) or USB disk 'sdN' plugged into a"
-	echo "    Pi USB port."
-	echo "    $PGM can clone to a new SD card/USB disk which will be initialized"
-	echo "    or can incrementally rsync to previously backed up SD cards/USB disks."
-	echo ""
-	echo "    If the destination disk has an existing $SRC_BOOT_PARTITION_TYPE partition 1 and a"
-	echo "    $SRC_ROOT_PARTITION_TYPE partition 2, $PGM assumes (unless using the -f option)"
-	echo "    that the destination is an existing backup with the partitions"
-	echo "    properly sized and set up for a Raspberry Pi.  All that is needed"
-	echo "    is to mount the partitions and rsync them to the running system."
-	echo ""
-	echo "    If these partitions are not found (or -f), then $PGM will ask"
-	echo "    if it is OK to initialize the destination disk partitions."
-	echo "    This is done by a partial 'dd' from the booted source disk (currently"
-	echo "    /dev/$SRC_DISK) to the destination SD card /dev/sdN followed"
-	echo "    by a fdisk resize and mkfs.ext4 of /dev/sdN partition 2."
-	echo "    This creates a completed $SRC_BOOT_PARTITION_TYPE partition 1 containing all boot"
-	echo "    files and an empty but properly sized partition 2 rootfs."
-	echo "    The destination partitions are then mounted and rsynced to the"
-	echo "    running system."
-	echo ""
-	echo "    By default the rsync operation will not cross filesystem boundaries."
-	echo "    Use the -c switch if you wish to include your mounted drive(s)"
-	echo "    Warning: any disk mounted under /mnt or /media will then be included."
-	echo ""
-	echo "    The destination partitions will be mounted on $CLONE."
-	echo "    A log will be written to $CLONE_LOG."
-	echo "    It's better to avoid running other disk writing programs"
-	echo "    when running $PGM."
-	echo ""
-	echo "    Version $VERSION"
-	exit 0
+	echo $"
+usage: $PGM sdN {-v|--verbose} {-f|--force-initialize} {-u|--unattended}
+         {-U|--Unattended} {-s|--setup} {-m|--mountdir dir }
+         {-a|--all-sync} {-F|--Force-sync} {-x} {-V|--version}
+
+    -v      - list all files as they are copied.
+    -f      - force initialize the destination disk by imaging the booted disk.
+    -u      - unattended clone if not initializing.  No confirmations asked,
+                but abort if disk needs initializing or on error.
+    -U      - unattended even if initializing. No confirmations asked,
+                but abort only on errors.
+    -s host - add 'host' to args passed to script $setup_command and run it
+                after cloning but before unmounting partitions. For setting
+                clone disk hostname, but args can be what the script expects.
+    -m dir  - Add dir to a custom list of mounted directories to sync.  The
+                root directory is always synced.  NA when initializing.
+    -a      - Sync all partitions if types compatible, not just mounted ones.
+    -F      - force file system sync even if errors.
+                If source used > destination space error, do the sync anyway.
+                If a source partition mount error, skip it and do other syncs.
+    -x      - use set -x for very verbose bash shell script debugging
+    -V      - print $PGM version.
+
+  Clone a booted file system to a destination disk which is bootable.
+
+  The destination disk is a SD card (USB card reader) or USB disk 'sdN' plugged
+  into a USB port.  The 'sdN' name should be a full disk name like sda and not
+  a partition name like sda1.  $PGM works on a Raspberry Pi and can work on
+  other systems.  For a destination disk that shows up as sda, run:
+
+    $ sudo rpi-clone sda
+
+  $PGM can be from a booted SD card or USB disk.  For a complete description
+  and examples, see the README.md at:
+
+      https://github.com/billw2/rpi-clone
+
+  A line logging a $PGM run is written to $clone_log.
+
+  Download:
+    git clone https://github.com/billw2/rpi-clone
+"
+
+	exit 1
 	}
 
-VERBOSE=off
-CROSS_FILESYSTEMS=off
+readable()
+	{
+	val=$1
+	if [ "$val" == "" ]
+	then
+		result="   ??"
+	else
+		blk_size=$2
+		val=$((val / 1000 * blk_size))
+
+		if ((val < 1000000))
+		then
+			result=$(echo $val \
+			| awk '{ byte =$1 /1000; printf "%.1f%s", byte, "MB" }')
+		elif ((val < 1000000000))
+		then
+			result=$(echo $val \
+			| awk '{ byte =$1 /1000/1000; printf "%.1f%s", byte, "GB" }')
+		else
+			result=$(echo $val \
+			| awk '{ byte =$1 /1000/1000/1000; printf "%.1f%s", byte, "TB" }')
+		fi
+	fi
+	printf -v "${3}" "%s" "$result"
+	}
+
+unmount_or_abort()
+	{
+	if [ "$1" == "" ]
+	then
+		return 0
+	fi
+	echo ""
+	echo "  $2"
+	echo "  The clone cannot proceed unless it is unmounted."
+	if confirm "Do you want to unmount $1?" "abort"
+	then
+		if ! umount $1
+		then
+			echo "$PGM could not unmount $1."
+			echo -e "Aborting!\n"
+			exit 0
+		fi
+	fi
+	return 1
+	}
+
+unmount_list()
+	{
+	if [ "$1" == "" ]
+	then
+		return 1
+	fi
+	for dir in $1
+	do
+		echo "unmounting: $dir"
+		if ! umount $dir
+		then
+			echo "  Failed to unmount: $dir"
+		fi
+	done
+	}
+
+mount_partition()
+	{
+	echo "  Mounting $1 on $2"
+
+	if ! mount $1 $2
+	then
+		echo "    Mount failure of $1 on $2."
+		if [ "$3" != "" ]
+		then
+			unmount_list $3
+		fi
+		echo "Aborting!"
+		exit 1
+	fi
+	}
+
+rsync_file_system()
+	{
+	src_dir="$1"
+	dst_dir="$2"
+
+	printf "  rsync $1 $2 $3 ..."
+
+	if [ "$3" == "with-root-excludes" ]
+	then
+		rsync $rsync_options --delete \
+			$exclude_swapfile \
+			--exclude '.gvfs' \
+			--exclude '/dev/*' \
+			--exclude '/mnt/clone/*' \
+			--exclude '/proc/*' \
+			--exclude '/run/*' \
+			--exclude '/sys/*' \
+			--exclude '/tmp/*' \
+			--exclude 'lost\+found/*' \
+		$src_dir \
+		$dst_dir
+	else
+		rsync $rsync_options --delete \
+			--exclude '.gvfs' \
+			--exclude 'lost\+found/*' \
+		$src_dir \
+		$dst_dir
+	fi
+	echo ""
+	}
+
+print_partitions()
+	{
+	n_parts=$(( (n_src_parts >= n_dst_parts) ? n_src_parts : n_dst_parts ))
+
+	readable $src_disk_size "512" src_size_readable
+	readable $dst_disk_size "512" dst_size_readable
+
+	printf "\n%-43s%s" "Booted disk: $src_disk $src_size_readable" \
+				"Destination disk: $dst_disk $dst_size_readable"
+	echo $"
+---------------------------------------------------------------------------"
+	out=$'Part, Size,FS,Label         ,Part, Size,FS,Label\n'
+	for ((p = 1; p <= n_parts; p++))
+	do
+		if ((p <= n_src_parts && src_exists[p]))
+		then
+			readable ${src_size_sectors[p]} "512" tmp
+			printf -v sectors_readable "%7s" $tmp
+			pname="$p ${src_name[p]}"
+			out=${out}$"$pname,$sectors_readable,${src_fs_type[p]},${src_label[p]},"
+		else
+			out=${out}$"  ,  ,  ,  ,"
+		fi
+
+		if ((p <= n_dst_parts && dst_exists[p]))
+		then
+			readable ${dst_size_sectors[p]} "512" tmp
+			printf -v sectors_readable "%7s" $tmp
+			out=${out}$"$p,$sectors_readable,${dst_fs_type[p]},${dst_label[p]},"
+		else
+			out=${out}$"  ,  ,  ,  ,"
+		fi
+		out=${out}$'\n'
+	done
+
+	echo $"$out" | column -t -s ','
+
+	if ((alt_root_part_num > 0))
+	then
+		echo $"
+** Assuming destination root partition for the clone is $dst_disk$root_part_num
+   The root FS mount is not from booted $src_disk.  It is ${src_root_dev#/dev/}"
+
+	fi
+	echo $"---------------------------------------------------------------------------"
+	}
+
+print_sync_actions()
+	{
+	for ((p = 1; p <= n_src_parts; p++))
+	do
+		if ((!src_exists[p]))
+		then
+			continue
+		fi
+		if ((p == root_part_num && alt_root_part_num > 0))
+		then
+			part=${src_root_dev#/dev/}
+			flow="$part to $dst_disk$p"
+		else
+			flow="to $dst_disk$p"
+		fi
+		if ((src_sync_part[p]))
+		then
+			readable ${src_used_sectors[p]} "512" used
+			readable ${dst_size_sectors[p]} "512" size
+			printf "%-12s%-16s : SYNC %s\n" \
+					"${src_mounted_dir[p]}" "(${used} used)" \
+					"$flow (${size} size)"
+		fi
+	done
+	}
+
+print_image_actions()
+	{
+	last_sector_size=$1
+
+	for ((p = 1; p <= n_src_parts; p++))
+	do
+		if ((!src_exists[p]))
+		then
+			continue
+		fi
+		pname="$p ${src_name[p]}"
+		fs_type=${src_fs_type[$p]}
+
+		if ((p == root_part_num && alt_root_part_num > 0))
+		then
+			part=${src_root_dev#/dev/}
+			flow="$part to $dst_disk$p"
+		else
+			flow="to $dst_disk$p"
+		fi
+
+		action=""
+
+		if [ "${src_mounted_dir[p]}" == "/boot" ] && ((p == 1))
+		then
+			action="IMAGE     $flow  FSCK"
+		elif [ "$fs_type" == "swap" ]
+		then
+			action="MKSWAP"
+		elif ((p != ext_part_num))
+		then
+			if [ "${src_mounted_dir[p]}" != "" ] || ((p == n_src_parts))
+			then
+				if ((p < n_src_parts || last_part_space || force_sync))
+				then
+					action="MKFS SYNC $flow"
+				else
+					action="MKFS **NO SYNC**"
+				fi
+			else
+				action="IMAGE     $flow"
+			fi
+		fi
+
+		if ((p == n_src_parts))
+		then
+			readable ${src_used_sectors[n_src_parts]} "512" used
+			printf "%-12s%-16s : RESIZE($last_sector_size) %s\n" \
+						"$pname" "(${used} used)" "$action"
+		elif ((src_used_sectors[$p] > 0))
+		then
+			readable ${src_used_sectors[p]} "512" used
+			printf "%-12s%-16s : $action\n" "$pname" "(${used} used)"
+		else
+			printf "%-28s : $action\n" "$pname"
+		fi
+	done
+	}
+
+print_options()
+	{
+	echo $"---------------------------------------------------------------------------"
+	if [ "$setup_args" != "" ]
+	then
+		printf "%-22s : %s\n" "Run setup script" "$setup_command $setup_args"
+	else
+		printf "%-22s : no\n" "Run setup script"
+	fi
+	printf "%-22s : %s\n" "Verbose mode" "$verbose"
+	printf "%-23s:\n" "-----------------------"
+	}
+
+get_disk()
+	{
+	partition=${1#/dev/}
+	disk=${partition:: -1}
+	num="${partition: -1}"
+	if [[ $disk == *"mmcblk"* ]]
+	then
+		SD_card_boot=1
+		disk=${disk:0:7}
+		src_part_p="p"
+	fi
+	printf -v "${2}" "%s" "$disk"
+	printf -v "${3}" "%s" "$num"
+	}
+
+
+# ==== source (booted) disk info and default mount list
+#
+src_boot_dev=`findmnt /boot -o source -n`
+src_root_dev=`findmnt / -o source -n`
+SD_card_boot=0
+src_part_p=""
+
+boot_part_num=0
+alt_root_part_num=0
+
+
+if [ "$src_boot_dev" == "" ]
+then
+	get_disk "$src_root_dev" "src_disk" "unused"
+else
+	get_disk "$src_boot_dev" "src_disk" "boot_part_num"
+fi
+
+get_disk "$src_root_dev" "src_root_disk" "root_part_num"
+
+if [ "$src_disk" == "" ]
+then
+	echo "Cannot find booted device."
+	exit 1
+fi
+
+if [ "$src_disk" != "$src_root_disk" ]
+then
+	if ((SD_card_boot))
+	then
+		# Handle SD card boots with root on different USB disk device.
+		# But will assume SD card has a root partition just above its root.
+		#
+		alt_root_part_num="$root_part_num"
+		root_part_num=$((boot_part_num + 1))
+	else
+		echo $"
+Boot and root are on different disks and it's not a SD card boot.
+Don't know how to partition the destination disk!"
+		exit 1
+	fi
+fi
+
+# src_root_dev, if on device other than booted, is not in src_partition_table
+# and src_fdisk_table, but is in src_df_table and src_mount_table
+#
+src_partition_table=$(parted -m "/dev/$src_disk" unit s print | tr -d ';')
+src_fdisk_table=$(fdisk -l /dev/$src_disk | grep "^/dev/")
+
+tmp=$(df | grep -e "^/dev/$src_disk" -e "^/dev/root" -e "$src_root_dev" \
+			| tr -s " ")
+dev=${src_root_dev#/dev/}
+src_df_table=$(echo "$tmp" | sed "s/root/$dev/")
+
+n_src_parts=$(echo "$src_partition_table" | tail -n 1 | cut -d ":" -f 1)
+src_disk_size=$(echo "$src_partition_table" \
+				| grep "^/dev/$src_disk" | cut -d ":" -f 2 | tr -d 's')
+
+line=$(fdisk -l /dev/$src_disk | grep "Disk identifier:")
+src_disk_ID=${line#*x}
+
+src_mount_table=$(findmnt -o source,target -n -l -b \
+				| grep -e "^/dev/$src_disk" -e "^$src_root_dev" | tr -s " ")
+n_mounts=$(echo "$src_mount_table" | wc -l)
+
+if ((alt_root_part_num > 0 && n_src_parts < 2))
+then
+	echo $"
+Booted disk has only one partition and the root is from another device.
+Don't know how to partition the destination disk!
+"
+	exit 1
+fi
+
+
+line=$(echo "$src_fdisk_table" | grep "Extended")
+if [ "$line" != "" ]
+then
+	dev=$(echo "$line" | cut -d " " -f 1)
+	ext_part_num="${dev: -1}"
+else
+	ext_part_num=0
+fi
+
+
+for ((p = 1; p <= n_src_parts; p++))
+do
+	line=$(echo "$src_partition_table" | grep -e "^${p}:")
+	if [ "$line" == "" ]
+	then
+		src_exists[p]=0
+		continue
+	fi
+	src_exists[p]=1
+
+	if ((p == root_part_num))
+	then
+		src_partition[p]=${src_root_dev#/dev/}
+		src_device[p]=$src_root_dev
+	else
+		src_partition[p]="${src_disk}${src_part_p}${p}"
+		src_device[p]="/dev/${src_partition[p]}"
+	fi
+
+	# parted sectors are 512 bytes
+	src_start_sector[p]=$(echo "$line" | cut -d ":" -f 2 | tr -d 's')
+	src_size_sectors[p]=$(echo "$line" | cut -d ":" -f 4 | tr -d 's')
+
+	part_type=$(echo "$line" | cut -d ":" -f 5)
+
+	src_mounted_dir[p]=$(echo "$src_mount_table" \
+						| grep -m 1 -e "^${src_device[p]}" | cut -d " " -f 2)
+	if [ "${src_mounted_dir[p]}" != "" ]
+	then
+		src_sync_part[p]=1
+	else
+		src_sync_part[p]=0
+	fi
+
+	src_name[p]=""
+	if [ "$part_type" != "" ]
+	then
+		src_fs_type[p]="$part_type"
+	else
+		src_fs_type[p]="--"
+	fi
+	src_label[p]="--"
+
+	if [ "${src_mounted_dir[p]}" == "/" ]
+	then
+		src_name[p]="root"
+	#
+	# If root on device other than booted SD card, root_part_num assumed to be
+	# booted /boot part_num + 1 and alt_root_part_num  is from root device.
+	#
+	elif ((p == root_part_num)) && ((alt_root_part_num > 0))
+	then
+		src_name[p]="root**"
+	elif ((p == ext_part_num))
+	then
+		src_fs_type[p]="EXT"
+	elif [[ "$part_type" == *"linux-swap"* ]]
+	then
+		src_fs_type[p]="swap"
+	elif [ "${src_mounted_dir[p]}" != "" ]
+	then
+		src_name[p]="${src_mounted_dir[p]}"
+	fi
+
+	if [[ "$part_type" == *"ext"* ]]
+	then
+		label=`e2label ${src_device[p]} 2>/dev/null`
+		if [ "$label" != "" ]
+		then
+			src_label[p]="$label"
+		fi
+	fi
+done
+
+
+# command line
+#
+setup_args=""
+
+verbose="no"
+
+force_initialize=0
+force_sync=0
+all_sync=0
+usage_error=0
+unattended=0
+Unattended=0
+custom_sync=0
 
 
 while [ "$1" ]
 do
 	case "$1" in
 		-v|--verbose)
-			VERBOSE=on
-			RSYNC_OPTIONS=${RSYNC_OPTIONS}v
+			verbose="yes"
+			rsync_options=${rsync_options}v
+			;;
+		-u|--unattended)
+			unattended=1
+			;;
+		-U|--Unattended-init)
+			unattended=1
+			Unattended=1
+			;;
+		-s|--setup)
+			shift
+			if ! command -v $setup_command > /dev/null
+			then
+				echo "Cannot find script $setup_command for setup arg \"$1\"."
+				usage_error=1
+			fi
+			setup_args="$setup_args $1"
 			;;
 		-f|--force-initialize)
-			FORCE_INITIALIZE=true
-			;;
-		-c|--cross-filesystems)
-			CROSS_FILESYSTEMS=on
-			RSYNC_OPTIONS=${RSYNC_OPTIONS/x}
-			;;
-		-s|--src-disk)
-			shift
-			SRC_DISK=$1
-			if [ "$SRC_DISK" == "mmcblk0" ]
-			then
-				SRC_ROOT=${SRC_DISK}p2
-			else
-				SRC_ROOT=${SRC_DISK}2
-			fi
+			force_initialize=1
 			;;
 		-x)
 			set -x
+			;;
+		-a|--all-sync)
+			all_sync=1
+			;;
+		-m|--mountdir)
+			shift
+			mount_ok=0
+			for ((p = 1; p <= n_src_parts; p++))
+			do
+				if ((!src_exists[p]))
+				then
+					continue
+				fi
+				if ((!custom_sync)) && ((p != root_part_num))
+				then
+					src_sync_part[p]=0
+				fi
+				if [ "${src_mounted_dir[p]}" == "$1" ]
+				then
+					src_sync_part[p]=1
+					mount_ok=1
+				fi
+			done
+			if ((!mount_ok))
+			then
+				echo "Asking to clone directory \"$1\", but it is not mounted."
+				usage_error=1
+			fi
+			custom_sync=1
+			;;
+		-F|--Force-sync)
+			force_sync=1
+			;;
+		-V|--version)
+			echo $PGM Version: $version
+			exit 0
 			;;
 		-h|--help)
 			usage
 			;;
 		*)
-			if [ "$DST_DISK" != "" ]
+			if [ "$dst_disk" != "" ]
 			then
 				echo "Bad args"
 				usage
 			fi
-			DST_DISK=$1
+			dst_disk=$1
+			dir=`expr substr $dst_disk 1 5`
+			if [ "$dir" == "/dev/" ]
+			then
+				dst_disk=${dst_disk#/dev/}
+			fi
 			;;
 	esac
 	shift
 done
 
-SRC_BOOT_PARTITION_TYPE=`parted /dev/$SRC_DISK -ms p | grep "^1" | cut -f 5 -d:`
-SRC_ROOT_PARTITION_TYPE=`parted /dev/$SRC_DISK -ms p | grep "^2" | cut -f 5 -d:`
-
-#echo $SRC_DISK to $DST_DISK  SRC_ROOT: $SRC_ROOT
-#echo $SRC_BOOT_PARTITION_TYPE
-#echo $SRC_ROOT_PARTITION_TYPE
-
-if [ "$DST_DISK" = "" ]
+if ((custom_sync)) && ((all_sync))
 then
-	echo "No destination disk specified."
+	echo "-m and -a options at the same time conflict."
+	exit 1
+fi
+if ((custom_sync)) && ((force_initialize))
+then
+	echo "-m and -f options at the same time conflict."
+	exit 1
+fi
+
+if ((usage_error))
+then
 	echo ""
-	usage
-	exit 0
+    exit 1
 fi
 
-# Remove leading /dev/
-DIR=`expr substr $DST_DISK 1 5`
-if [ "$DIR" == "/dev/" ]
-then
-	DST_DISK=${DST_DISK#/dev/}
-fi
+# dst_mount_flag enumerations:
+live=1
+temp=2
+fail=3
 
-if ! cat /proc/partitions | grep -q $DST_DISK
-then
-	echo "Destination disk '$DST_DISK' does not exist."
-	echo "Plug the destination SD card into a card reader connected to a"
-	echo "USB port.  If it does not show up  as '$DST_DISK', then do a"
-	echo -e "'cat /proc/partitions' to see where it might be.\n"
-	exit 0
-fi
-
-CHK_DISK=`cat /proc/partitions | grep -m 1 $DST_DISK`
-D=${CHK_DISK: -1}
-if [ "$D" -eq "$D" ] 2>/dev/null
-then
-	echo "  The target disk you entered, $DST_DISK, ends with a digit and this"
-	echo "  may mean you have given a partition name instead of a disk name."
-	echo "  For example, if you want to clone to a disk sda,"
-	echo "  specify sda and not one of its partition names like sda1 or sda2."
-	echo -n "Do you want to continue anyway? (yes/no):"
-	read resp
-	if [ "$resp" != "y" ] && [ "$resp" != "yes" ]
-	then
-		echo ""
-		exit 0
-	fi
-fi
-
-unmount_or_abort()
-	{
-	echo -n "Do you want to unmount $1? (yes/no): "
-	read resp
-	if [ "$resp" = "y" ] || [ "$resp" = "yes" ]
-	then
-		if ! umount $1
-		then
-			echo "Sorry, $PGM could not unmount $1."
-			echo -e "Aborting!\n"
-			exit 0
-		fi
-	else
-		echo -e "Aborting!\n"
-		exit 0
-	fi
-	}
-
-DST_ROOT_PARTITION=/dev/${DST_DISK}2
-DST_BOOT_PARTITION=/dev/${DST_DISK}1
-
-# Check that none of the destination partitions are busy (mounted).
-#
-DST_ROOT_CURMOUNT=`fgrep "$DST_ROOT_PARTITION " /etc/mtab | cut -f 2 -d ' ' `
-DST_BOOT_CURMOUNT=`fgrep "$DST_BOOT_PARTITION " /etc/mtab | cut -f 2 -d ' ' `
-
-if [ "$DST_ROOT_CURMOUNT" != "" ] || [ "$DST_BOOT_CURMOUNT" != "" ]
-then
-	echo "A destination partition is busy (mounted).  Mount status:"
-	echo "    $DST_ROOT_PARTITION:  $DST_ROOT_CURMOUNT"
-	echo "    $DST_BOOT_PARTITION:  $DST_BOOT_CURMOUNT"
-	if [ "$DST_BOOT_CURMOUNT" != "" ]
-	then
-		unmount_or_abort $DST_BOOT_CURMOUNT
-	fi
-	if [ "$DST_ROOT_CURMOUNT" != "" ]
-	then
-		unmount_or_abort $DST_ROOT_CURMOUNT
-	fi
-fi
-
-
-TEST_MOUNTED=`fgrep " $CLONE " /etc/mtab | cut -f 1 -d ' ' `
-if [ "$TEST_MOUNTED" != "" ]
-then
-	echo "This script uses $CLONE for mounting filesystems, but"
-	echo "$CLONE is already mounted with $TEST_MOUNTED."
-	unmount_or_abort $CLONE 
-fi
-
-if [ ! -d $CLONE ]
-then
-	MNT_MOUNT=`fgrep " /mnt " /etc/mtab | cut -f 1 -d ' ' `
-	if [ "$MNT_MOUNT" = "" ]
-	then
-		mkdir $CLONE
-	else
-		echo "$MNT_MOUNT is currently mounted on /mnt."
-		unmount_or_abort /mnt
-		mkdir $CLONE
-	fi
-fi
-
-
-# Borrowed from do_expand_rootfs in raspi-config
-expand_rootfs()
-	{
-	# Get the starting offset of the root partition
-	# (with Jessie's parted, now need to strip trailing 's' from PART_START)
-	PART_START=$(parted /dev/$SRC_DISK -ms unit s p  \
-			| grep "^2" | cut -f 2 -d: | cut -f 1 -d s)
-	[ "$PART_START" ] || return 1
-	# Return value will likely be error for fdisk as it fails to reload the
-	# partition table because the root fs is mounted
-	fdisk /dev/$DST_DISK > /dev/null <<EOF
-p
-d
-2
-n
-p
-2
-$PART_START
-
-p
-w
-q
-EOF
-	}
-
-
-# =========== Disk Setup and Checks ===========
-#
-# Check that destination partitions are the right type.
-#
-DST_BOOT_PARTITION_TYPE=`parted /dev/$DST_DISK -ms p 2>/dev/null \
-		| grep "^1" | cut -f 5 -d:`
-DST_ROOT_PARTITION_TYPE=`parted /dev/$DST_DISK -ms p 2>/dev/null \
-		| grep "^2" | cut -f 5 -d:`
-
-CLONE_MODE="rsync modified files to existing $DST_DISK file systems"
-
-if [ "$DST_BOOT_PARTITION_TYPE" != "$SRC_BOOT_PARTITION_TYPE" ] || \
-   [ "$DST_ROOT_PARTITION_TYPE" != "$SRC_ROOT_PARTITION_TYPE" ] || \
-   [ "$FORCE_INITIALIZE" = "true" ]
-then
-	CLONE_MODE="rsync all files to $DST_DISK root file system"
-	echo ""
-	if [ "$FORCE_INITIALIZE" = "true" ]
-	then
-		echo "Forcing a partition initialization of destination disk $DST_DISK"
-	else
-		echo "Source disk     : $SRC_DISK"
-		echo "Destination disk: $DST_DISK"
-		echo "   Partition tables do not match, $DST_DISK must be initialized."
-	fi
-
-	echo "$DST_DISK current partitions are:"
-	parted /dev/$DST_DISK -s unit MB p 2>/dev/null \
-		| sed "/^Model/d ; /^Sector/d ; /^Disk Flags/d"
-
-#	if [ "$DST_BOOT_PARTITION_TYPE" != "$SRC_BOOT_PARTITION_TYPE" ]
-#	then
-#		echo -e "  ... Cannot find a destination boot file system of type: $SRC_BOOT_PARTITION_TYPE\n"
-#	fi
-#	if [ "$DST_ROOT_PARTITION_TYPE" != "$SRC_ROOT_PARTITION_TYPE" ]
-#	then
-#		echo -e "  ... Cannot find a destination root file system of type: $SRC_ROOT_PARTITION_TYPE\n"
-#	fi
-
-	echo "*** All data on destination disk $DST_DISK will be overwritten! ***"
-	echo ""
-	echo -n "Do you want to initialize the destination disk /dev/$DST_DISK? (yes/no): "
-
-	read resp
-	if [ "$resp" = "y" ] || [ "$resp" = "yes" ]
-	then
-		# Image onto the destination disk a beginning fragment of the
-		# running SD card/USB disk file structure that spans at least more than
-		# the start of partition 2.
-		#
-		# Calculate the start of partition 2 in MB for the dd.
-		PART2_START=$(parted /dev/$SRC_DISK -ms unit MB p | grep "^2" \
-				| cut -f 2 -d: | sed s/MB// | tr "," "." | cut -f 1 -d.)
-		# and add some slop
-		DD_COUNT=`expr $PART2_START + 8`
-
-		echo ""
-		echo "Imaging the partition structure, copying $DD_COUNT megabytes..."
-		sync
-		dd if=/dev/$SRC_DISK of=/dev/$DST_DISK bs=1M count=$DD_COUNT
-
-		# Partition was copied live so fsck to clean up for possible future
-		# "Volume was not properly unmounted" warnings.
-		if [ "$HAVE_FSCK_VFAT" = "yes" ]
-		then
-			echo "Running fsck on $DST_BOOT_PARTITION..."
-			fsck -p $DST_BOOT_PARTITION &> /dev/null
-		fi
-
-		# But, though Partion 1 is now imaged, partition 2 is incomplete and
-		# maybe the wrong size for the destination SD card.  So fdisk it to
-		# make it fill the rest of the disk and mkfs it to clean it out.
-		#
-		echo "Sizing partition 2 (root partition) to use all SD card space..."
-		expand_rootfs
-		mkfs.ext4 -F $DST_ROOT_PARTITION
-
-		echo ""
-		echo "/dev/$DST_DISK is initialized and resized.  Its partitions are:"
-#		fdisk -l /dev/$DST_DISK | grep $DST_DISK
-		parted /dev/$DST_DISK unit MB p \
-			| sed "/^Model/d ; /^Sector/d ; /^Disk Flags/d"
-
-		SRC_ROOT_VOL_NAME=`e2label /dev/$SRC_ROOT`
-		echo ""
-		echo "Your booted /dev/$SRC_ROOT rootfs existing label: $SRC_ROOT_VOL_NAME"
-		echo -n "You may enter a label for the destination rootfs $DST_ROOT_PARTITION: "
-		read resp
-		if [ "$resp" != "" ]
-		then
-			e2label $DST_ROOT_PARTITION "$resp"
-		fi
-	else
-		echo -e "Aborting\n"
-		exit 0
-	fi
-fi
-
-
-# =========== Setup Summary ===========
-#
-DST_ROOT_VOL_NAME=`e2label $DST_ROOT_PARTITION`
-
-if [ "$DST_ROOT_VOL_NAME" = "" ]
-then
-	DST_ROOT_VOL_NAME="no label"
-fi
-
-echo ""
-echo "======== Clone Summary ========"
-echo "Clone mode               :  $CLONE_MODE"
-echo "Clone source disk        :  $SRC_DISK"
-echo "Clone destination disk   :  $DST_DISK"
-echo "Clone destination rootfs :  $DST_ROOT_PARTITION ($DST_ROOT_VOL_NAME) on ${CLONE}"
-echo "Clone destination bootfs :  $DST_BOOT_PARTITION on ${CLONE}/boot"
-echo "Verbose mode             :  $VERBOSE"
-echo "Cross filesystems        :  $CROSS_FILESYSTEMS"
-echo "==============================="
-
-
-# If this is an SD card initialization, can watch progress of the clone
-# in another terminal with:  watch df -h
-#
-echo -n "Final check, is it Ok to proceed with the clone (yes/no)?: "
-read resp
-if [ "$resp" != "y" ] && [ "$resp" != "yes" ]
-then
-	echo -e "Aborting the disk clone.\n"
-	exit 0
-fi
-
-#
-# =========== End of Setup  ===========
-
-
-
-
-# Mount destination filesystems.
-
-echo "=> Mounting $DST_ROOT_PARTITION ($DST_ROOT_VOL_NAME) on $CLONE"
-if ! mount $DST_ROOT_PARTITION $CLONE
-then
-	echo -e "Mount failure of $DST_ROOT_PARTITION, aborting!\n"
-	exit 0
-fi
-
-if [ ! -d $CLONE/boot ]
-then
-	mkdir $CLONE/boot
-fi
-
-echo "=> Mounting $DST_BOOT_PARTITION on $CLONE/boot"
-if ! mount $DST_BOOT_PARTITION $CLONE/boot
-then
-	umount $CLONE
-	echo -e "Mount failure of $DST_BOOT_PARTITION, aborting!\n"
-	exit 0
-fi
-
-echo "==============================="
-
-# Do not include a dhpys swapfile in the clone.  dhpys-swapfile will
-# regenerate it at boot.
-#
-if [ -f /etc/dphys-swapfile ]
-then
-	SWAPFILE=`cat /etc/dphys-swapfile | grep ^CONF_SWAPFILE | cut -f 2 -d=`
-	if [ "$SWAPFILE" = "" ]
-	then
-		SWAPFILE=/var/swap
-	fi
-	EXCLUDE_SWAPFILE="--exclude $SWAPFILE"
-fi
-
-# start sync
-#
-START_TIME=`date '+%H:%M:%S'`
-sync
-
-# /boot rsync
-echo "Starting the /boot rsync to $DST_DISK"
-rsync $RSYNC_OPTIONS --delete /boot/ ${CLONE}/boot/
-
-# rest of filesystem rsync
-# Exclude fuse mountpoint .gvfs, various other mount points, and tmpfs
-# file systems from the rsync.
-#
-echo "Starting the filesystem rsync to $DST_DISK"
-echo -n "(This may take several minutes)..."
-rsync $RSYNC_OPTIONS --delete \
-		$EXCLUDE_SWAPFILE \
-		--exclude '.gvfs' \
-		--exclude '/dev' \
-		--exclude '/mnt/clone' \
-		--exclude '/proc' \
-		--exclude '/run' \
-		--exclude '/sys' \
-		--exclude '/tmp' \
-		--exclude 'lost\+found' \
-		--exclude '/boot' \
-	// \
-	$CLONE
-
-
-
-# Fixup some stuff
-#
-
-for i in dev media mnt proc run sys
+for ((p = 1; p <= n_src_parts; p++))
 do
-	if [ ! -d $CLONE/$i ]
+	if ((!src_exists[p]))
 	then
-		mkdir $CLONE/$i
+		continue
+	fi
+	blocks=0
+	dst_mount_flag[p]=0
+
+	if [ "${src_mounted_dir[p]}" != "" ]
+	then		# df blocks are 1024 bytes
+		dst_mount_flag[p]=$live
+		blocks=$(echo "$src_df_table" \
+					| grep -m 1 "^${src_device[p]}" | cut -d " " -f 3)
+	# in case intializing, get n_src_parts to compare to dest space
+	elif   ((p == n_src_parts)) \
+	    || ((all_sync)) \
+		&& [ "${src_fs_type[p]}" != "EXT" ] \
+		&& [ "${src_fs_type[p]}" != "swap" ] \
+		&& [ "${src_fs_type[p]}" != "" ]
+	then
+		if mount ${src_device[p]} $clone
+		then
+			sleep 1
+			blocks=$(df | grep "^${src_device[p]}" \
+						| tr -s " " | cut -d " " -f 3)
+			umount $clone
+			dst_mount_flag[p]=$temp
+			if ((all_sync))
+			then
+				src_sync_part[p]=1
+			fi
+		else
+			dst_mount_flag[p]=$fail
+		fi
+	fi
+	src_used_sectors[p]=$((blocks * 2))
+done
+
+# ==== destination disk checks
+#
+if [ "$dst_disk" = "" ]
+then
+	echo "No destination disk given."
+	usage
+fi
+
+chk_disk=`cat /proc/partitions | grep -m 1 $dst_disk`
+
+if [ "$chk_disk" == "" ]
+then
+	echo $"
+  Cannot find '$dst_disk' in the partition table.  The partition table is:"
+	cat /proc/partitions
+	exit 1
+fi
+
+if [[ ${chk_disk: -1} =~ ^[0-9]$ ]]
+then
+	echo $"
+  Target disk $dst_disk ends with a digit so may be a partition.
+  $PGM requires disk names like 'sda' and not partition names like 'sda1'."
+
+	confirm "Continue anyway?" "abort"
+fi
+
+
+if [ "$src_disk" == "$dst_disk" ]
+then
+	echo "Destination disk $dst_disk is the booted disk.  Cannot clone!"
+	exit 1
+fi
+
+dst_partition_table=$(parted -m "/dev/$dst_disk" unit s print | tr -d ';')
+n_dst_parts=$(echo "$dst_partition_table" | tail -n 1 | cut -d ":" -f 1)
+dst_disk_size=$(echo "$dst_partition_table" \
+				| grep "^/dev/$dst_disk" | cut -d ":" -f 2 | tr -d 's')
+dst_root_dev=/dev/${dst_disk}${root_part_num}
+
+dst_mount_table=$(findmnt -o source,target -n -l -b \
+				| grep "^/dev/$dst_disk" | tr -s " ")
+
+dst_fdisk_table=$(fdisk -l /dev/$dst_disk | grep "^/dev/")
+line=$(echo "$dst_fdisk_table" | grep "Extended")
+if [ "$line" != "" ]
+then
+	dev=$(echo "$line" | cut -d " " -f 1)
+	ext_num="${dev: -1}"
+else
+	ext_num=0
+fi
+
+for ((p = 1; p <= n_dst_parts; p++))
+do
+	line=$(echo "$dst_partition_table" | grep -e "^${p}:")
+	if [ "$line" == "" ]
+	then
+		dst_exists[p]=0
+		continue
+	fi
+	dst_exists[p]=1
+
+	part="${dst_disk}${p}"
+	dst_partition[p]="$part"
+	dst_device[p]="/dev/$part"
+
+	dst_start_sector[p]=$(echo "$line" | cut -d ":" -f 2 | tr -d 's')
+	dst_size_sectors[p]=$(echo "$line" | cut -d ":" -f 4 | tr -d 's')
+
+	part_type=$(echo "$line" | cut -d ":" -f 5)
+	if [ "$part_type" != "" ]
+	then
+		dst_fs_type[p]="$part_type"
+	else
+		dst_fs_type[p]="--"
+	fi
+	dst_label[p]="--"
+
+	if [[ "$part_type" == *"linux-swap"* ]]
+	then
+		dst_fs_type[p]="swap"
+	elif [[ "$part_type" == *"ext"* ]]
+	then
+		label=`e2label ${dst_device[p]} 2>/dev/null`
+		if [ "$label" != "" ]
+		then
+			dst_label[p]="$label"
+		fi
+	elif ((p == ext_num))
+	then
+		dst_fs_type[p]="EXT"
 	fi
 done
 
-if [ ! -d $CLONE/tmp ]
+fs_match=1
+initialize=$((force_initialize))
+
+for ((p = 1; p <= n_src_parts; p++))
+do
+	if ((!src_exists[p]))
+	then
+		continue
+	fi
+	stype=${src_fs_type[p]}
+	dtype=${dst_fs_type[p]}
+	if [ "$stype" != "$dtype" ]
+	then
+		tmp_match=0
+		if [[ "$stype" == *"fat"* ]] && [[ "$dtype" == *"fat"* ]]
+		then
+			tmp_match=1
+		elif [[ "$stype" == *"ext"* ]] && [[ "$dtype" == *"ext"* ]]
+		then
+			tmp_match=1
+		fi
+		if ((!tmp_match)) && ((src_sync_part[p]))
+		then
+			fs_match=0
+		fi
+	fi
+done
+
+
+if ((!fs_match))
 then
-	mkdir $CLONE/tmp
-	chmod a+w $CLONE/tmp
+	initialize=1
+	fs_match_string="do not match"
+else
+	fs_match_string="OK, they match"
+fi
+
+for ((p = 1; p <= n_dst_parts; p++))
+do
+	if ((!dst_exists[p]))
+	then
+		continue
+	fi
+	dir=$(echo "$dst_mount_table" \
+				| grep -e "^${dst_device[p]}" | cut -d " " -f 2)
+	unmount_or_abort "$dir" \
+"Destination disk partition ${dst_device[p]} is mounted on ${dst_mounted_dir[p]}."
+done
+
+
+if [ ! -d $clone ]
+then
+	mkdir $clone
+fi
+if [ ! -d $clone_src ]
+then
+	mkdir $clone_src
+fi
+
+# Do not include a dhpys swapfile in rsync.  It regenerates at boot.
+#
+if [ -f /etc/dphys-swapfile ]
+then
+	swapfile=`cat /etc/dphys-swapfile | grep ^CONF_SWAPFILE | cut -f 2 -d=`
+	if [ "$swapfile" = "" ]
+	then
+		swapfile=/var/swap
+	fi
+	exclude_swapfile="--exclude $swapfile"
+fi
+
+# TODO: exclude fuse mounts (readlink_stat errors): process findmnt -D | fuse
+
+mounted_dev=$(findmnt $clone -o source -n)
+unmount_or_abort "$mounted_dev" \
+			"Directory $clone is already mounted with $mounted_dev."
+
+mounted_dev=$(findmnt $clone_src -o source -n)
+unmount_or_abort "$mounted_dev" \
+			"Directory $clone_src is already mounted with $mounted_dev."
+
+mounted_dev=$(findmnt /mnt -o source -n)
+unmount_or_abort "$mounted_dev" "$mounted_dev is currently mounted on /mnt."
+
+print_partitions
+
+
+if ((initialize))
+then
+	if ((unattended && !Unattended))
+	then
+		echo $"
+Unattended -u option not allowed when initializing.
+Use -U for unattended even if initializing.
+"
+		exit 1
+	fi
+
+	reason="FS types mismatch"
+	if ((force_initialize))
+	then
+		reason="forced by option"
+	fi
+
+	start_sector=${src_start_sector[$n_src_parts]}
+	last_part_sectors=$((dst_disk_size - start_sector))
+	last_part_used=${src_used_sectors[$n_src_parts]}
+	last_part_space=$(( (last_part_sectors > last_part_used) ? 1 : 0 ))
+
+	if ((last_part_sectors < 7812))
+	then
+		readable $((start_sector + 7812)) "512" min_size
+		echo $"
+To image the booted disk, the minimum destination disk size is $min_size
+The destination disk is too small.
+"
+		exit 1
+	fi
+
+	readable $((last_part_sectors + 7812)) "512" space_readable
+
+	echo "== Initialize: IMAGE $src_disk partition table to $dst_disk - $reason ==" 
+	print_image_actions "$space_readable"
+	print_options
+
+	printf "%-22s : %s\n" "** WARNING **" \
+			"All destination disk $dst_disk data will be overwritten!"
+	printf "%-22s : %s\n" "" \
+			"  The partition structure will be imaged from $src_disk."
+
+	abort=0
+	if ((!last_part_space))
+	then
+		readable $last_part_used "512" used_readable
+		printf "%-22s : %s\n" "** WARNING **" \
+					"Destination last partition resize to $space_readable"
+		printf "%-22s : %s\n" "" \
+					"  is too small to hold source used $used_readable."
+		if [ "$n_src_parts" == "$root_part_num" ]
+		then
+			printf "%-22s : %s\n" "" \
+					"  This is the root partition, so aborting!"
+			abort=1
+		elif ((!force_sync))
+		then
+			printf "%-22s : %s\n" "" \
+					"  The partition SYNC is skipped, use -F to override."
+		else
+			printf "%-22s : %s\n" "" \
+					"  ** Syncing anyway as you asked with -F. **"
+		fi
+	fi
+	printf "%-23s:\n" "-----------------------"
+	if ((abort))
+	then
+		exit 1
+	fi
+	confirm "Initialize and clone to the destination disk ${dst_disk}?" "abort"
+
+	root_label=""
+	if ((!Unattended))
+	then
+		printf "Optional destination rootfs $dst_root_dev label (16 chars max): "
+		read root_label
+	fi
+
+	start_time=`date '+%H:%M:%S'`
+	start_sec=$(date '+%s')
+
+	if [ "${src_mounted_dir[1]}" == "/boot" ]
+	then
+		image_to_part=2
+		msg="/boot"
+	else
+		image_to_part=1
+		msg="first"
+	fi
+	image_to_sector=${src_start_sector[$image_to_part]}
+	count=$((image_to_sector / 2 / 1024 + 4))  # in MiB blocks for dd bs=1M
+
+	echo "Imaging past the start of $msg partition $image_to_part."
+	sync
+	echo "  => dd if=/dev/$src_disk of=/dev/$dst_disk bs=1M count=$count ..."
+	dd if=/dev/$src_disk of=/dev/$dst_disk bs=1M count=$count
+	echo ""
+	sync
+
+	sfd0=$(sfdisk -d /dev/$src_disk)
+#	part="$dst_disk$n_src_parts"
+	part="$src_disk$src_part_p$n_src_parts"
+	sfd1=$(echo "$sfd0" | sed "\/dev\/$part/s/size=[^,]*,//")
+
+	if ((ext_part_num > 0))
+	then
+#		part="$dst_disk$ext_part_num"
+		part="$src_disk$src_part_p$ext_part_num"
+		sfd1=$(echo "$sfd1" | sed "\/dev\/$part/s/size=[^,]*,//")
+	fi
+
+	printf "  => Resizing last partition to end of disk ..."
+	for ((x = 0; x < 3; ++x))
+	do
+		sleep $((x + 1))
+		sfdisk --force /dev/$dst_disk &> /tmp/$PGM-fail <<< "$sfd1"
+		if [ "$?" == 0 ]
+		then
+			break
+		fi
+		if ((x == 2))
+		then
+			printf "\n====$PGM\n==orig:\n%s\n\n==edited:\n%s\n" \
+					"$sfd0" "$sfd1" >> /tmp/$PGM-fail
+			printf "\n    Resize failed.  See /tmp/$PGM-fail.\n\n"
+			exit 1
+		fi
+	done
+	printf "\n    Resize success.\n\n"
+	partprobe "/dev/$dst_disk"
+	sleep 2
+
+	for ((p = 1; p <= n_src_parts; p++))
+	do
+		if ((!src_exists[p]))
+		then
+			continue
+		fi
+		dst_dev=/dev/${dst_disk}${p}
+		fs_type=${src_fs_type[$p]}
+		if    ((p == ext_part_num)) \
+		   || [ "$fs_type" == "--" ]
+		then
+			continue
+		fi
+
+		if [ "${src_mounted_dir[p]}" == "/boot" ] && ((p == 1))
+		then
+			# Avoid "Volume not properly unmounted" warnings.
+			printf "\n  => fsck -p $dst_dev ..."
+			fsck -p $dst_dev &>> /tmp/$PGM-log
+			echo ""
+		else
+			if [ "$fs_type" == "swap" ]
+			then
+				printf "\n  => mkswap $dst_dev\n"
+				mkswap $dst_dev
+			elif ((p != ext_part_num))
+			then
+				if [ "${src_mounted_dir[p]}" != "" ] || ((p == n_src_parts))
+				then
+					if [ "$fs_type" == "fat16" ]
+					then
+						fs_type="vfat"
+					elif [ "$fs_type" == "fat32" ]
+					then
+						fs_type="vfat -F 32"
+					fi
+					printf "\n  => mkfs -t $fs_type $dst_dev\n"
+					mkfs -t "$fs_type" "$dst_dev" <<< "yes"
+					echo ""
+					if ((p == n_src_parts))
+					then
+						if ((!last_part_space))
+						then
+							src_sync_part[p]=$force_sync
+						else
+							src_sync_part[p]=1
+						fi
+					fi					
+				else
+					printf "\n  => dd if=${src_device[$p]} of=$dst_dev bs=1M ...\n"
+					dd if=${src_device[$p]} of=$dst_dev bs=1M
+					echo ""
+				fi
+			fi
+		fi
+	done
+
+	if [ "$root_label" != "" ]
+	then
+		e2label $dst_root_dev "$root_label"
+	fi
+else
+	echo "== SYNC $src_disk file systems to $dst_disk =="
+	print_sync_actions
+	print_options
+
+	informed=0
+	space_ok=1
+	all_sync_mount_ok=1
+	if ((force_sync))
+	then
+		err="WARNING"
+	else
+		err="FATAL"
+	fi
+	for ((p = 1; p <= n_src_parts; p++))
+	do
+		if ((!src_exists[p] || !dst_exists[p]))
+		then
+			continue
+		fi
+		if    ((${dst_size_sectors[p]} < ${src_used_sectors[p]})) \
+		   && ((src_sync_part[p]))
+		then
+			printf "%-22s : %s\n" "** $err **" \
+			"Partition $p: source used > destination space."
+			space_ok=$force_sync
+			informed=1
+		fi
+		if ((all_sync && dst_mount_flag[p] == fail))
+		then
+			printf "%-22s : %s\n" "** $err **" \
+			"Partition $p: mount failed, cannot sync."
+			all_sync_mount_ok=$force_sync
+			informed=1
+		fi
+	done
+	if ((informed))
+	then
+		printf "%-23s:\n" "-----------------------"
+	fi
+
+	if ((!space_ok || !all_sync_mount_ok))
+	then
+		printf "\nAborting!\n"
+		if ((!space_ok))
+		then
+			printf "  Use -F to override used > space fail.\n"
+		fi
+		if ((!all_sync_mount_ok))
+		then
+			printf "  Use -a -F to sync all except failed mounts.\n"
+		fi
+		exit 1
+	fi
+
+	confirm "Ok to proceed with the clone?" "abort"
+	start_time=`date '+%H:%M:%S'`
+	start_sec=$(date '+%s')
+fi
+
+line=$(fdisk -l /dev/$dst_disk | grep "Disk identifier:")
+dst_disk_ID=${line#*x}
+if [ "$dst_disk_ID" == "$src_disk_ID" ]
+then
+	echo "=> Destination disk has same Disk ID as source, changing it."
+	new_id=$(od -A n -t x -N 4 /dev/urandom | tr -d " ")
+	printf "x\ni\n0x$new_id\nr\nw\nq\n" | fdisk /dev/$dst_disk | grep changed
+	sync
+	sleep 1
+
+	line=$(fdisk -l /dev/$dst_disk | grep "Disk identifier:")
+	dst_disk_ID=${line#*x}
+	if [ "$dst_disk_ID" == "$src_disk_ID" ]
+	then
+		echo "  Failed to set a new Disk ID."
+	fi
+fi
+
+sync
+printf "\nSyncing file systems (can take a long time):"
+
+sync_msg_done=0
+for ((p = 1; p <= n_src_parts; p++))
+do
+	if ((!src_exists[p]))
+	then
+		continue
+	fi
+	if ((src_sync_part[p] && dst_mount_flag[p] == temp))
+	then
+		if ((!sync_msg_done))
+		then
+			printf "\nSyncing unmounted partitions\n"
+		fi
+		sync_msg_done=1
+		mount_partition ${src_device[p]} $clone_src ""
+		mount_partition /dev/$dst_disk$p $clone "$clone_src"
+		unmount_list="$clone_src $clone"
+		rsync_file_system "${clone_src}/" "${clone}" ""
+		unmount_list "$unmount_list"
+	fi
+	done
+
+
+printf "\n=> Syncing mounted partitions\n"
+mount_partition $dst_root_dev $clone ""
+unmount_list="$clone"
+
+rsync_file_system "//" "$clone" "with-root-excludes"
+
+for ((p = 1; p <= n_src_parts; p++))
+do
+	if ((!src_exists[p]))
+	then
+		continue
+	fi
+	if ((p != root_part_num && src_sync_part[p] && dst_mount_flag[p] == live))
+	then
+		dst_dir=$clone${src_mounted_dir[p]}
+		if [ ! -d $dst_dir ]
+		then
+			mkdir -p $dst_dir
+		fi
+		mount_partition /dev/$dst_disk$p "$dst_dir" "$unmount_list"
+		rsync_file_system "${src_mounted_dir[p]}/" "${dst_dir}" ""
+		unmount_list="$dst_dir $unmount_list"
+	fi
+done
+
+
+# Fix PARTUUID references in fstab and cmdline.txt
+#
+if grep -q $src_disk_ID ${clone}/etc/fstab
+then
+	echo "=> Editing ${clone}/etc/fstab PARTUUID to use $dst_disk_ID"
+	sed -i "s/${src_disk_ID}/${dst_disk_ID}/g" "${clone}/etc/fstab"
+fi
+
+if    [ -f ${clone}/boot/cmdline.txt ] \
+   && grep -q $src_disk_ID ${clone}/boot/cmdline.txt
+then
+	echo "=> Editing ${clone}/boot/cmdline.txt PARTUUID to use $dst_disk_ID"
+	sed -i "s/${src_disk_ID}/${dst_disk_ID}/" "${clone}/boot/cmdline.txt"
 fi
 
 
-rm -f $CLONE/etc/udev/rules.d/70-persistent-net.rules
+rm -f $clone/etc/udev/rules.d/70-persistent-net.rules
+
+dst_root_vol_name=`e2label $dst_root_dev`
+
+if [ "$dst_root_vol_name" = "" ]
+then
+	dst_root_vol_name="no label"
+fi
 
 
-DATE=`date '+%F %H:%M'`
+if [ "$setup_args" != "" ]
+then
+	printf "\n==> Running setup script: $setup_command $setup_args\n"
+	$setup_command $setup_args
+fi
 
-echo "$DATE  $HOSTNAME $PGM : clone to $DST_DISK ($DST_ROOT_VOL_NAME)" \
-		>> $CLONE_LOG
-echo "$DATE  $HOSTNAME $PGM : clone to $DST_DISK ($DST_ROOT_VOL_NAME)" \
-		>> $CLONE/$CLONE_LOG
+date=`date '+%F %H:%M'`
+echo "$date  $HOSTNAME $PGM : clone to $dst_disk ($dst_root_vol_name)" \
+		>> $clone_log
+echo "$date  $HOSTNAME $PGM : clone to $dst_disk ($dst_root_vol_name)" \
+		>> ${clone}${clone_log}
 
 
-STOP_TIME=`date '+%H:%M:%S'`
+stop_sec=$(date '+%s')
+clone_sec=$((stop_sec - start_sec))
 
-echo ""
-echo "*** Done with clone to /dev/$DST_DISK ***"
-echo "    Started: $START_TIME    Finished: $STOP_TIME"
-echo ""
-
-# Pause before unmounting in case I want to inspect the clone results
-# or need to custom modify any files on the destination SD clone.
-# Eg. modify $CLONE/etc/hostname, $CLONE/etc/network/interfaces, etc
-# if I'm cloning into a card to be installed on another Pi.
-#
-echo -n "Hit Enter when ready to unmount the /dev/$DST_DISK partitions..."
-read resp
-
-echo "unmounting $CLONE/boot"
-umount $CLONE/boot
-
-echo "unmounting $CLONE"
-umount $CLONE
-
+stop_time=`date '+%H:%M:%S'`
 
 echo "==============================="
+echo "Done with clone to /dev/$dst_disk"
+printf "   Start - %s    End - %s    Elapsed Time - %d:%02d\n" \
+		"$start_time" "$stop_time" "$((clone_sec / 60))" "$((clone_sec % 60))"
+
+if ((!unattended))
+then
+	echo -n $"
+Cloned partitions are mounted on $clone for inspection or customizing. 
+
+Hit Enter when ready to unmount the /dev/$dst_disk partitions..."
+
+	read resp
+fi
+
+unmount_list "$unmount_list"
+printf "===============================\n\n"
 
 exit 0

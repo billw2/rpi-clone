@@ -1,0 +1,144 @@
+#!/bin/bash
+
+# Usage:  rpi-clone-setup {-t|--test} hostname
+#    eg:  sudo rpi-clone-setup bozo
+#
+# This script is automatically run by rpi-clone (when it is given -s options)
+# to setup an alternate hostname.  A cloned file system mounted on /mnt/clone
+# is expected unless testing with the -t option.
+#
+# Or, this script can be run by hand at the end of a clone when rpi-clone
+# pauses with the cloned file systems still mounted on /mnt/clone.
+#
+# Or, run this script by hand with -t to process files in test directories
+# under /tmp/clone-test.  Run -t and look at the files to see if the files
+# have been edited OK.
+#   eg:  sudo rpi-clone-setup -t bozo
+#
+# This is a starter script that handles only /etc/hosts and /etc/hostname.
+# Make sure the script works correctly for your /etc/hosts file.
+#
+# If adding a customization for another file:
+#    Add the file to file_list.
+#    If needed, add a mkdir -p line to the "if ((testing))" part.
+#    Add the scripting necessary to customize the file.
+#    Test new scripting by running:  rpi-clone-setup -t newhostname
+#
+
+file_list="etc/hostname etc/hosts"
+
+clone=/mnt/clone
+clone_test=/tmp/clone-test
+
+PGM=`basename $0`
+
+if [ `id -u` != 0 ]
+then
+	echo "You must be root to run $PGM"
+	exit 0
+fi
+
+function usage
+	{
+	echo "Usage: $PGM hostname  {-t|--test}"
+	echo "   Eg:  $PGM rpi1"
+	echo "   Modify files appropriate to set up for a new host."
+	echo "   Files handled are:"
+	for file in $file_list
+	do
+		echo "        $file"
+	done
+	echo ""
+	echo "If testing (-t flag) files are copied and processed to $clone_test"
+	echo ""
+	exit 0
+	}
+
+testing=0
+while [ "$1" ]
+do
+	case "$1" in
+		-t|--test)
+			testing=1
+			;;
+		*)
+			if [ "$newhost" != "" ]
+			then
+				echo "Bad args"
+				usage
+			fi
+			newhost=$1
+			;;
+	esac
+	shift
+done
+
+if [ "$newhost" = "" ]
+then
+	echo -e "You must specify a target hostname\n"
+	usage
+fi
+
+echo -e "\t$newhost\t- target hostname"
+
+if ((!testing)) && [ ! -d /mnt/clone/etc ]
+then
+	echo "A destination clone file system is not mounted on /mnt/clone"
+	echo "Aborting!"
+	exit 0
+fi
+
+if ((testing))
+then
+	cd /tmp
+	rm -rf $clone_test
+	clone=$clone_test
+
+	mkdir -p $clone/etc
+
+	echo "**********************************************"
+	echo "Testing setup: copying files to $clone"
+	for file in $file_list
+	do
+		echo "    cp /$file $clone/$file"
+		cp /$file $clone/$file
+	done
+	echo "This test run will modify those files."
+	echo "**********************************************"
+	echo ""
+fi
+
+
+##
+# Set /etc/hostname
+#
+cd $clone/etc
+echo $newhost > hostname
+#
+# Read it back to verify.
+#
+echo "$clone/etc/hostname - set new hostname: "
+LINE=`cat hostname`
+echo -e "$LINE\n"
+
+
+##
+# Edit /etc/hosts - edit the sed command if editing fails for your /etc/hosts.
+#
+cd $clone/etc
+sed -i s/"$HOSTNAME"/"$newhost"/ hosts
+#
+# Read it back to verify.
+#
+echo "$clone/etc/hosts - set new hostname \"$newhost\" in lines: "
+LINE=`grep $newhost hosts`
+echo -e "$LINE\n"
+
+
+##
+# Add more customizations if needed.
+#
+
+
+exit 0
+
