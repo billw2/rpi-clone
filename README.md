@@ -95,8 +95,9 @@ handles my /etc/grub.d/ custom menus and fstab, and the script runs
 grub_install.  rpi-clone does handle editing of
 PARTUUID values in /etc/fstab, but a customized setup script for
 a desktop might need to handle file system UUID values or device
-name editing in /etc/fstab and the bootloader config.
-
+name editing in /etc/fstab and the bootloader config.  If these possible
+issues are handled in a setup script, then rpi-clone should work fine
+creating clone backup disks for a desktop.
 
 ## Usage
 See the examples below.  To get a usage screen showing available options,
@@ -105,8 +106,10 @@ run rpi-clone without any arguments:
 pi@rpi0: $ sudo ./rpi-clone
 No destination disk given.
 
-usage: rpi-clone sdN {-v|--verbose} {-f|--force-initialize} {-u|--unattended}
-         {-U|--Unattended} {-s|--setup} {-m|--mountdir dir }
+usage: rpi-clone sdN {-v|--verbose} {-f|--force-initialize}
+         {-u|--unattended} {-U|--Unattended}
+         {-s|--setup} {-e|--edit-fstab name }
+         {-m|--mountdir dir }
          {-a|--all-sync} {-F|--Force-sync} {-x} {-V|--version}
 
     -v      - list all files as they are copied.
@@ -118,6 +121,8 @@ usage: rpi-clone sdN {-v|--verbose} {-f|--force-initialize} {-u|--unattended}
     -s host - add 'host' to args passed to script rpi-clone-setup and run it
                 after cloning but before unmounting partitions. For setting
                 clone disk hostname, but args can be what the script expects.
+    -e sdX  - edit fstab to change booted device names to new device 'sdX'.
+                Only for device names.  Don't use if fstab uses PARTUUID, etc.
     -m dir  - Add dir to a custom list of mounted directories to sync.  The
                 root directory is always synced.  NA when initializing.
     -a      - Sync all partitions if types compatible, not just mounted ones.
@@ -127,6 +132,12 @@ usage: rpi-clone sdN {-v|--verbose} {-f|--force-initialize} {-u|--unattended}
     -x      - use set -x for very verbose bash shell script debugging
     -V      - print rpi-clone version.
 ```
++ If /etc/fstab uses device names:
+	+ SD card to bootable USB flash or hard disk clones: use "-e sdX"
+      to set up the destination fstab and cmdline.txt.
+	+ USB disk to SD card slot (mmcblk0) clones: "-e mmcblk0p" is assumed.
++ rpi-clone version 1 briefly had a -s option that is replaced with a
+  -s option that has different meaning.
 
 ## Raspberry Pi SD Card Booted Examples
 #### First clone to a new SD card
@@ -137,7 +148,7 @@ have matching partition types, so the clone is an initialize where
 the source partition structure is cloned to the destination.  Because
 the destination is smaller, the last partition will be resized down.
 When disks are initialized a label can be given for the
-destination a root file system.  I do that so I can keep track of
+destination root file system.  I do that so I can keep track of
 my cloned cards.  When you run rpi-clone, it tells you what it will do:
 ```
 pi@rpi0: $ sudo ./rpi-clone sdb
@@ -194,9 +205,9 @@ Ok to proceed with the clone?  (yes/no):
 #### Clone to manually partitioned hard drive
 I wanted to have a Pi3 hard drive USB boot with extra data partitions
 and I want to be able to clone back to 2 partition SD cards for use
-in other SD card booted Pis.  So my USB disk, which was showing up
-as sdc, was manually partitioned with partitions of the appropriate
-types and file systems made with mkfs.
+in other SD card booted Pis.  So my USB connected hard drive, which
+was showing up as sdc, was manually partitioned with partitions of
+the appropriate types and file systems made with mkfs.
 
 Raspbian on the Raspberry Pi needs for the first two partitions to be:
 ```
@@ -204,18 +215,41 @@ Raspbian on the Raspberry Pi needs for the first two partitions to be:
   1: type c  W95 FAT32 (LBA)       mkfs -t vfat /dev/sdc1
   2: type 83 Linux                 mkfs.ext4 /dev/sdc2
 ```
-Although the first partition file system cound be mkfs -t vfat -F 32.
+Although the first partition file system could be mkfs -t vfat -F 32.
 I made the extra partitions mkfs.ext4 and I made a swap partition for
-possible later use.  Now when rpi-clone is run it will see
-that the destination disk has matching types for the booted partitions
-1 and 2, so it will do a sync clone without trying to initialize the
-destination and my extra partitions 5 and 6 will not be touched.
-Here's the first clone attempt to my manually partitioned disk.
-The partition types match so rpi-clone goes straight to a sync clone.
-Note: when manually preparing like this and you make partition types
-match, don't forget that you must also make the file systems.  rpi-clone
-won't know if you've forgotten that until it tries to mount the
+possible later use (since this is a hard drive and not a flash drive).
+Now when rpi-clone is run it will see that the destination disk has
+matching types for the booted partitions 1 and 2, so it will do a
+sync clone without trying to initialize the destination and my extra
+partitions 5 and 6 will not be touched.  This will be the first clone
+attempt to my manually partitioned disk.  The partition types match so
+rpi-clone will go straight to a sync clone.
+
+Notes:
++ When manually preparing partitions like this and you make partition types
+match, don't forget that you must also make the matching file systems.
+rpi-clone won't know if you've forgotten that until it tries to mount the
 partitions.
++ What I say here applies generally, not just for manually partitioned
+drives. The clone to create a bootable USB disk can work without
+any additional steps beyond the rpi-clone run I show in
+this example if you are on a Pi3 that uses PARTUUID in cmdline.txt and fstab
+because rpi-clone automatically edits those.
+But if you are using device names and are setting up to have a
+system that SD card boots but uses a USB root, then you have to add an
+argument to the rpi-clone run:
+	+ Use the "-e sdX" option and rpi-clone will edit the destination
+      /etc/fstab and /boot/cmdline.txt to reference sdX partition names
+      instead of the SD card mmcblk0p partition names.
+	+ Once you boot your system and are running with a USB root, then the
+      SD card slot is available and you can put a SD card into it and clone
+      the running USB disk back to it.  In that case you would
+      run: "rpi-clone mmcblk0".  If you do this, rpi-clone assumes you want
+      to make the SD card standalone bootable and assumes "-e mmcblk0p"
+      and you don't have to explicitly add the argument.
+	+ But rpi-clone will not edit the currently booted SD card cmdline.txt.
+      You must do that yourself.
+
 ```
 pi@rpi0: $ sudo ./rpi-clone sdc
 
@@ -242,7 +276,7 @@ Ok to proceed with the clone?  (yes/no):
 
 ## Raspberry Pi USB Hard Drive Booted Examples
 Now I have booted the USB hard drive I cloned to in the example just
-above.  I'm going to show several examples here because things now get
+above.  I'm going to show several examples here because things get
 interesting with rpi-clone's flexibility.
 
 #### Routine USB disk clone to 16GB SD card
@@ -296,11 +330,15 @@ The destination disk is too small.
 ```
 rpi-clone sees the mounted partition 5 and wants to clone it but finds
 there's not enough space on the destination drive and won't let me.
+A bigger disk is needed to clone all the way through partition 5.
 
 #### USB disk with mounted partition 5 clone to 16GB SD card try 2
-I"ve got things I'm working on and don't want to unmount the partition
+I've got things I'm working on and don't want to unmount the partition
 to make the clone work, so I use the -m option to tell rpi-clone to
-only clone root and /boot and exclude the mounted /mnt/mnt directory:
+only clone root and /boot and exclude any other directory mounts not given
+with a -m option.  You don't need to specify "-m /" because root is
+always included in a clone.  But you can give only one "-m /" option
+and rpi-clone will clone only the root.
 ```
 pi@rpi0: ~$ sudo  rpi-clone sda -m /boot
 
@@ -360,7 +398,9 @@ space, there is a -F option which will allow the clone to proceed
 anyway.  Maybe not a good idea, but the interesting thing about
 this case is that the sync will actually succeed.  That's
 because the root used space includes an almost 2GB file system based
-swap file (/var/swap) that will be excluded from the sync.
+swap file (/var/swap) that will be excluded from the sync.  I haven't
+yet switched to using the hard disk swap partition.
+This is just a FYI.
 
 #### USB disk clone to large USB disk
 If you have an extra backup hard drive, you can clone to it and back up
@@ -369,7 +409,9 @@ plugging in a drive I happen to use for backing up my desktop,
 so the partition types won't match and rpi-clone will want to do an
 initialize.  The part to note is that rpi-clone will tell you the
 steps it will take when doing an image clone of several partitions.
-It will even make a swap partition on the destination.
+It will even make a swap partition on the destination. So, I'll also
+note that this example gives a clue if you want to try using rpi-clone
+on a desktop.
 ```
 pi@rpi0: ~$ sudo  rpi-clone sda            
 

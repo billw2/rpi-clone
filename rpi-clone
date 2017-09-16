@@ -65,8 +65,10 @@ HOSTNAME=`hostname`
 usage()
 	{
 	echo $"
-usage: $PGM sdN {-v|--verbose} {-f|--force-initialize} {-u|--unattended}
-         {-U|--Unattended} {-s|--setup} {-m|--mountdir dir }
+usage: $PGM sdN {-v|--verbose} {-f|--force-initialize}
+         {-u|--unattended} {-U|--Unattended}
+         {-s|--setup} {-e|--edit-fstab name }
+         {-m|--mountdir dir }
          {-a|--all-sync} {-F|--Force-sync} {-x} {-V|--version}
 
     -v      - list all files as they are copied.
@@ -78,6 +80,8 @@ usage: $PGM sdN {-v|--verbose} {-f|--force-initialize} {-u|--unattended}
     -s host - add 'host' to args passed to script $setup_command and run it
                 after cloning but before unmounting partitions. For setting
                 clone disk hostname, but args can be what the script expects.
+    -e sdX  - edit destination fstab to change booted device names to new
+                device 'sdX'.  This is Only for fstabs that use device names.
     -m dir  - Add dir to a custom list of mounted directories to sync.  The
                 root directory is always synced.  NA when initializing.
     -a      - Sync all partitions if types compatible, not just mounted ones.
@@ -260,7 +264,7 @@ print_partitions()
 	if ((alt_root_part_num > 0))
 	then
 		echo $"
-** Assuming destination root partition for the clone is $dst_disk$root_part_num
+** Assuming destination root partition for the clone is $dst_part_base$root_part_num
    The root FS mount is not from booted $src_disk.  It is ${src_root_dev#/dev/}"
 
 	fi
@@ -278,9 +282,9 @@ print_sync_actions()
 		if ((p == root_part_num && alt_root_part_num > 0))
 		then
 			part=${src_root_dev#/dev/}
-			flow="$part to $dst_disk$p"
+			flow="$part to $dst_part_base$p"
 		else
-			flow="to $dst_disk$p"
+			flow="to $dst_part_base$p"
 		fi
 		if ((src_sync_part[p]))
 		then
@@ -309,9 +313,9 @@ print_image_actions()
 		if ((p == root_part_num && alt_root_part_num > 0))
 		then
 			part=${src_root_dev#/dev/}
-			flow="$part to $dst_disk$p"
+			flow="$part to $dst_part_base$p"
 		else
-			flow="to $dst_disk$p"
+			flow="to $dst_part_base$p"
 		fi
 
 		action=""
@@ -365,7 +369,7 @@ print_options()
 	printf "%-23s:\n" "-----------------------"
 	}
 
-get_disk()
+get_src_disk()
 	{
 	partition=${1#/dev/}
 	disk=${partition:: -1}
@@ -374,7 +378,7 @@ get_disk()
 	then
 		SD_card_boot=1
 		disk=${disk:0:7}
-		src_part_p="p"
+		src_part_base=${disk}p
 	fi
 	printf -v "${2}" "%s" "$disk"
 	printf -v "${3}" "%s" "$num"
@@ -386,7 +390,7 @@ get_disk()
 src_boot_dev=`findmnt /boot -o source -n`
 src_root_dev=`findmnt / -o source -n`
 SD_card_boot=0
-src_part_p=""
+src_part_base=""
 
 boot_part_num=0
 alt_root_part_num=0
@@ -394,17 +398,22 @@ alt_root_part_num=0
 
 if [ "$src_boot_dev" == "" ]
 then
-	get_disk "$src_root_dev" "src_disk" "unused"
+	get_src_disk "$src_root_dev" "src_disk" "unused"
 else
-	get_disk "$src_boot_dev" "src_disk" "boot_part_num"
+	get_src_disk "$src_boot_dev" "src_disk" "boot_part_num"
 fi
 
-get_disk "$src_root_dev" "src_root_disk" "root_part_num"
+get_src_disk "$src_root_dev" "src_root_disk" "root_part_num"
 
 if [ "$src_disk" == "" ]
 then
 	echo "Cannot find booted device."
 	exit 1
+fi
+
+if [ "$src_part_base" == "" ]
+then
+	src_part_base=$src_disk
 fi
 
 if [ "$src_disk" != "$src_root_disk" ]
@@ -481,7 +490,7 @@ do
 		src_partition[p]=${src_root_dev#/dev/}
 		src_device[p]=$src_root_dev
 	else
-		src_partition[p]="${src_disk}${src_part_p}${p}"
+		src_partition[p]="${src_part_base}${p}"
 		src_device[p]="/dev/${src_partition[p]}"
 	fi
 
@@ -544,7 +553,7 @@ done
 # command line
 #
 setup_args=""
-
+edit_fstab_name=""
 verbose="no"
 
 force_initialize=0
@@ -578,6 +587,10 @@ do
 				usage_error=1
 			fi
 			setup_args="$setup_args $1"
+			;;
+		-e|--edit-fstab)
+			shift
+			edit_fstab_name=$1
 			;;
 		-f|--force-initialize)
 			force_initialize=1
@@ -720,13 +733,24 @@ then
 	exit 1
 fi
 
+dst_part_base=$dst_disk
+
 if [[ ${chk_disk: -1} =~ ^[0-9]$ ]]
 then
-	echo $"
+	if [[ $dst_disk == *"mmcblk"* ]]
+	then
+		dst_part_base=${dst_disk}p
+		if [ "$edit_fstab_name" == "" ]
+		then
+			edit_fstab_name=$dst_part_base
+		fi
+	else
+		echo $"
   Target disk $dst_disk ends with a digit so may be a partition.
   $PGM requires disk names like 'sda' and not partition names like 'sda1'."
 
-	confirm "Continue anyway?" "abort"
+		confirm "Continue anyway?" "abort"
+	fi
 fi
 
 
@@ -740,7 +764,7 @@ dst_partition_table=$(parted -m "/dev/$dst_disk" unit s print | tr -d ';')
 n_dst_parts=$(echo "$dst_partition_table" | tail -n 1 | cut -d ":" -f 1)
 dst_disk_size=$(echo "$dst_partition_table" \
 				| grep "^/dev/$dst_disk" | cut -d ":" -f 2 | tr -d 's')
-dst_root_dev=/dev/${dst_disk}${root_part_num}
+dst_root_dev=/dev/${dst_part_base}${root_part_num}
 
 dst_mount_table=$(findmnt -o source,target -n -l -b \
 				| grep "^/dev/$dst_disk" | tr -s " ")
@@ -765,7 +789,7 @@ do
 	fi
 	dst_exists[p]=1
 
-	part="${dst_disk}${p}"
+	part="${dst_part_base}${p}"
 	dst_partition[p]="$part"
 	dst_device[p]="/dev/$part"
 
@@ -985,14 +1009,12 @@ The destination disk is too small.
 	sync
 
 	sfd0=$(sfdisk -d /dev/$src_disk)
-#	part="$dst_disk$n_src_parts"
-	part="$src_disk$src_part_p$n_src_parts"
+	part="${src_part_base}$n_src_parts"
 	sfd1=$(echo "$sfd0" | sed "\/dev\/$part/s/size=[^,]*,//")
 
 	if ((ext_part_num > 0))
 	then
-#		part="$dst_disk$ext_part_num"
-		part="$src_disk$src_part_p$ext_part_num"
+		part="${src_part_base}$ext_part_num"
 		sfd1=$(echo "$sfd1" | sed "\/dev\/$part/s/size=[^,]*,//")
 	fi
 
@@ -1023,7 +1045,7 @@ The destination disk is too small.
 		then
 			continue
 		fi
-		dst_dev=/dev/${dst_disk}${p}
+		dst_dev=/dev/${dst_part_base}${p}
 		fs_type=${src_fs_type[$p]}
 		if    ((p == ext_part_num)) \
 		   || [ "$fs_type" == "--" ]
@@ -1174,7 +1196,7 @@ do
 		fi
 		sync_msg_done=1
 		mount_partition ${src_device[p]} $clone_src ""
-		mount_partition /dev/$dst_disk$p $clone "$clone_src"
+		mount_partition /dev/${dst_part_base}$p $clone "$clone_src"
 		unmount_list="$clone_src $clone"
 		rsync_file_system "${clone_src}/" "${clone}" ""
 		unmount_list "$unmount_list"
@@ -1201,12 +1223,48 @@ do
 		then
 			mkdir -p $dst_dir
 		fi
-		mount_partition /dev/$dst_disk$p "$dst_dir" "$unmount_list"
+		mount_partition /dev/${dst_part_base}$p "$dst_dir" "$unmount_list"
 		rsync_file_system "${src_mounted_dir[p]}/" "${dst_dir}" ""
 		unmount_list="$dst_dir $unmount_list"
 	fi
 done
 
+
+# Fix asked for device name reference change in fstab
+#
+fstab=${clone}/etc/fstab
+cmdline_txt=${clone}/boot/cmdline.txt
+
+if    [ "$edit_fstab_name" != "" ] \
+   && grep -q ${src_part_base} ${clone}/etc/fstab
+then
+	echo "=> Editing $fstab references from $src_part_base to $edit_fstab_name"
+	sed -i "s/${src_part_base}/${edit_fstab_name}/" "$fstab"
+	lines=$(grep "$edit_fstab_name" $fstab)
+	printf "   New destination fstab lines:\n$lines\n\n"
+
+	if [ -f $cmdline_txt ] \
+	   && grep -q ${src_part_base} $cmdline_txt
+	then
+		echo "=> Editing $cmdline_txt references from $src_part_base to $edit_fstab_name"
+		sed -i "s/${src_part_base}/$edit_fstab_name/" "$cmdline_txt"
+		printf "   New destination cmdline.txt:\n"
+		cat $cmdline_txt
+		echo ""
+
+		if ((SD_card_boot))
+		then
+			echo $"
+=> ** Warning ** If setting up for a USB boot, you must edit the booted
+   cmdline.txt yourself and set the root= line to root=${edit_fstab_name}${root_part_num}
+"
+		fi
+	fi
+elif [ "$edit_fstab_name" != "" ] && ((!SD_card_boot))
+then
+	echo "
+=> ** Warning ** ${src_part_base} not found in fstab. Can't edit it."
+fi
 
 # Fix PARTUUID references in fstab and cmdline.txt
 #
