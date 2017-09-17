@@ -1,6 +1,6 @@
 #!/bin/bash
 
-version=2.0.0
+version=2.0.1
 
 PGM=`basename $0`
 setup_command="$PGM-setup"
@@ -66,17 +66,18 @@ usage()
 	{
 	echo $"
 usage: $PGM sdN {-v|--verbose} {-f|--force-initialize}
-         {-u|--unattended} {-U|--Unattended}
+         {-u|--unattended} {-U|--Unattended} {-q|--quiet}
          {-s|--setup} {-e|--edit-fstab name }
          {-m|--mountdir dir }
          {-a|--all-sync} {-F|--Force-sync} {-x} {-V|--version}
 
-    -v      - list all files as they are copied.
+    -v      - verbose rsync, list all files as they are copied.
     -f      - force initialize the destination disk by imaging the booted disk.
     -u      - unattended clone if not initializing.  No confirmations asked,
                 but abort if disk needs initializing or on error.
     -U      - unattended even if initializing. No confirmations asked,
                 but abort only on errors.
+    -q      - quiet mode, no output unless errors or initializing. Implies -u.
     -s host - add 'host' to args passed to script $setup_command and run it
                 after cloning but before unmounting partitions. For setting
                 clone disk hostname, but args can be what the script expects.
@@ -140,15 +141,30 @@ readable()
 	printf -v "${3}" "%s" "$result"
 	}
 
+qecho()
+	{
+    if ((!quiet))
+	then
+    	echo "$@"
+    fi
+	}
+	
+qprintf()
+	{
+    if ((!quiet))
+	then
+    	printf "$@"
+    fi
+	}
+
 unmount_or_abort()
 	{
 	if [ "$1" == "" ]
 	then
-		return 0
+		return
 	fi
-	echo ""
-	echo "  $2"
-	echo "  The clone cannot proceed unless it is unmounted."
+	qprintf "\n  $2\n  The clone cannot proceed unless it is unmounted."
+
 	if confirm "Do you want to unmount $1?" "abort"
 	then
 		if ! umount $1
@@ -158,28 +174,27 @@ unmount_or_abort()
 			exit 0
 		fi
 	fi
-	return 1
 	}
 
 unmount_list()
 	{
 	if [ "$1" == "" ]
 	then
-		return 1
+		return
 	fi
 	for dir in $1
 	do
-		echo "unmounting: $dir"
+		qecho "unmounting: $dir"
 		if ! umount $dir
 		then
-			echo "  Failed to unmount: $dir"
+			qecho "  Failed to unmount: $dir"
 		fi
 	done
 	}
 
 mount_partition()
 	{
-	echo "  Mounting $1 on $2"
+	qecho "  Mounting $1 on $2"
 
 	if ! mount $1 $2
 	then
@@ -198,7 +213,7 @@ rsync_file_system()
 	src_dir="$1"
 	dst_dir="$2"
 
-	printf "  rsync $1 $2 $3 ..."
+	qprintf "  rsync $1 $2 $3 ..."
 
 	if [ "$3" == "with-root-excludes" ]
 	then
@@ -221,11 +236,15 @@ rsync_file_system()
 		$src_dir \
 		$dst_dir
 	fi
-	echo ""
+	qecho ""
 	}
 
 print_partitions()
 	{
+	if ((quiet)) && ((!initialize))
+	then
+		return
+	fi
 	n_parts=$(( (n_src_parts >= n_dst_parts) ? n_src_parts : n_dst_parts ))
 
 	readable $src_disk_size "512" src_size_readable
@@ -273,6 +292,10 @@ print_partitions()
 
 print_sync_actions()
 	{
+	if ((quiet))
+	then
+		return
+	fi
 	for ((p = 1; p <= n_src_parts; p++))
 	do
 		if ((!src_exists[p]))
@@ -358,6 +381,10 @@ print_image_actions()
 
 print_options()
 	{
+	if ((quiet))
+	then
+		return
+	fi
 	echo $"---------------------------------------------------------------------------"
 	if [ "$setup_args" != "" ]
 	then
@@ -562,6 +589,7 @@ all_sync=0
 usage_error=0
 unattended=0
 Unattended=0
+quiet=0
 custom_sync=0
 
 
@@ -578,6 +606,11 @@ do
 		-U|--Unattended-init)
 			unattended=1
 			Unattended=1
+			;;
+		-q|--quiet)
+			unattended=1
+			quiet=1
+			rsync_options=${rsync_options}q
 			;;
 		-s|--setup)
 			shift
@@ -664,6 +697,11 @@ then
 	echo "-m and -f options at the same time conflict."
 	exit 1
 fi
+if [[ "$verbose" == "yes" ]] && ((quiet))
+then
+	echo "-q and -v options at the same time conflict."
+	exit 1
+fi
 
 if ((usage_error))
 then
@@ -743,9 +781,12 @@ then
 		if [ "$edit_fstab_name" == "" ]
 		then
 			edit_fstab_name=$dst_part_base
+			assumed_fstab_edit=1
+		else
+			assumed_fstab_edit=0
 		fi
 	else
-		echo $"
+		qecho $"
   Target disk $dst_disk ends with a digit so may be a partition.
   $PGM requires disk names like 'sda' and not partition names like 'sda1'."
 
@@ -858,6 +899,12 @@ else
 	fs_match_string="OK, they match"
 fi
 
+if ((initialize)) && ((quiet))
+then
+	echo "Quiet mode asked for but an initialize is required - can't clone!"
+	exit 1
+fi
+
 for ((p = 1; p <= n_dst_parts; p++))
 do
 	if ((!dst_exists[p]))
@@ -906,7 +953,6 @@ mounted_dev=$(findmnt /mnt -o source -n)
 unmount_or_abort "$mounted_dev" "$mounted_dev is currently mounted on /mnt."
 
 print_partitions
-
 
 if ((initialize))
 then
@@ -1101,7 +1147,7 @@ The destination disk is too small.
 		e2label $dst_root_dev "$root_label"
 	fi
 else
-	echo "== SYNC $src_disk file systems to $dst_disk =="
+	qecho "== SYNC $src_disk file systems to $dst_disk =="
 	print_sync_actions
 	print_options
 
@@ -1123,14 +1169,14 @@ else
 		if    ((${dst_size_sectors[p]} < ${src_used_sectors[p]})) \
 		   && ((src_sync_part[p]))
 		then
-			printf "%-22s : %s\n" "** $err **" \
+			qprintf "%-22s : %s\n" "** $err **" \
 			"Partition $p: source used > destination space."
 			space_ok=$force_sync
 			informed=1
 		fi
 		if ((all_sync && dst_mount_flag[p] == fail))
 		then
-			printf "%-22s : %s\n" "** $err **" \
+			qprintf "%-22s : %s\n" "** $err **" \
 			"Partition $p: mount failed, cannot sync."
 			all_sync_mount_ok=$force_sync
 			informed=1
@@ -1138,7 +1184,7 @@ else
 	done
 	if ((informed))
 	then
-		printf "%-23s:\n" "-----------------------"
+		qprintf "%-23s:\n" "-----------------------"
 	fi
 
 	if ((!space_ok || !all_sync_mount_ok))
@@ -1164,9 +1210,9 @@ line=$(fdisk -l /dev/$dst_disk | grep "Disk identifier:")
 dst_disk_ID=${line#*x}
 if [ "$dst_disk_ID" == "$src_disk_ID" ]
 then
-	echo "=> Destination disk has same Disk ID as source, changing it."
+	qecho "=> Destination disk has same Disk ID as source, changing it."
 	new_id=$(od -A n -t x -N 4 /dev/urandom | tr -d " ")
-	printf "x\ni\n0x$new_id\nr\nw\nq\n" | fdisk /dev/$dst_disk | grep changed
+	qprintf "x\ni\n0x$new_id\nr\nw\nq\n" | fdisk /dev/$dst_disk | grep changed
 	sync
 	sleep 1
 
@@ -1174,12 +1220,12 @@ then
 	dst_disk_ID=${line#*x}
 	if [ "$dst_disk_ID" == "$src_disk_ID" ]
 	then
-		echo "  Failed to set a new Disk ID."
+		qecho "  Failed to set a new Disk ID."
 	fi
 fi
 
 sync
-printf "\nSyncing file systems (can take a long time):"
+qprintf "\nSyncing file systems (can take a long time):"
 
 sync_msg_done=0
 for ((p = 1; p <= n_src_parts; p++))
@@ -1192,7 +1238,7 @@ do
 	then
 		if ((!sync_msg_done))
 		then
-			printf "\nSyncing unmounted partitions\n"
+			qprintf "\nSyncing unmounted partitions\n"
 		fi
 		sync_msg_done=1
 		mount_partition ${src_device[p]} $clone_src ""
@@ -1204,7 +1250,7 @@ do
 	done
 
 
-printf "\n=> Syncing mounted partitions\n"
+qprintf "\n=> Syncing mounted partitions\n"
 mount_partition $dst_root_dev $clone ""
 unmount_list="$clone"
 
@@ -1230,55 +1276,32 @@ do
 done
 
 
-# Fix asked for device name reference change in fstab
+# Fix PARTUUID or device name references in cmdline.txt and fstab
 #
-fstab=${clone}/etc/fstab
 cmdline_txt=${clone}/boot/cmdline.txt
+fstab=${clone}/etc/fstab
 
-if    [ "$edit_fstab_name" != "" ] \
-   && grep -q ${src_part_base} ${clone}/etc/fstab
+if [ -f $cmdline_txt ]
 then
-	echo "=> Editing $fstab references from $src_part_base to $edit_fstab_name"
-	sed -i "s/${src_part_base}/${edit_fstab_name}/" "$fstab"
-	lines=$(grep "$edit_fstab_name" $fstab)
-	printf "   New destination fstab lines:\n$lines\n\n"
-
-	if [ -f $cmdline_txt ] \
-	   && grep -q ${src_part_base} $cmdline_txt
+	if grep -q $src_disk_ID $cmdline_txt
 	then
-		echo "=> Editing $cmdline_txt references from $src_part_base to $edit_fstab_name"
+		qecho "=> Editing $cmdline_txt PARTUUID to use $dst_disk_ID"
+		sed -i "s/${src_disk_ID}/${dst_disk_ID}/" "$cmdline_txt"
+	elif [ "$edit_fstab_name" != "" ] && grep -q ${src_part_base} $cmdline_txt
+	then
+		qecho "=> Editing $cmdline_txt references from $src_part_base to $edit_fstab_name"
 		sed -i "s/${src_part_base}/$edit_fstab_name/" "$cmdline_txt"
-		printf "   New destination cmdline.txt:\n"
-		cat $cmdline_txt
-		echo ""
-
-		if ((SD_card_boot))
-		then
-			echo $"
-=> ** Warning ** If setting up for a USB boot, you must edit the booted
-   cmdline.txt yourself and set the root= line to root=${edit_fstab_name}${root_part_num}
-"
-		fi
-	fi
-elif [ "$edit_fstab_name" != "" ] && ((!SD_card_boot))
-then
-	echo "
-=> ** Warning ** ${src_part_base} not found in fstab. Can't edit it."
+	fi		
 fi
 
-# Fix PARTUUID references in fstab and cmdline.txt
-#
-if grep -q $src_disk_ID ${clone}/etc/fstab
+if grep -q $src_disk_ID $fstab
 then
-	echo "=> Editing ${clone}/etc/fstab PARTUUID to use $dst_disk_ID"
-	sed -i "s/${src_disk_ID}/${dst_disk_ID}/g" "${clone}/etc/fstab"
-fi
-
-if    [ -f ${clone}/boot/cmdline.txt ] \
-   && grep -q $src_disk_ID ${clone}/boot/cmdline.txt
+	qecho "=> Editing $fstab PARTUUID to use $dst_disk_ID"
+	sed -i "s/${src_disk_ID}/${dst_disk_ID}/g" "$fstab"
+elif [ "$edit_fstab_name" != "" ] && grep -q ${src_part_base} $fstab
 then
-	echo "=> Editing ${clone}/boot/cmdline.txt PARTUUID to use $dst_disk_ID"
-	sed -i "s/${src_disk_ID}/${dst_disk_ID}/" "${clone}/boot/cmdline.txt"
+	qecho "=> Editing $fstab references from $src_part_base to $edit_fstab_name"
+	sed -i "s/${src_part_base}/${edit_fstab_name}/" "$fstab"
 fi
 
 
@@ -1294,7 +1317,7 @@ fi
 
 if [ "$setup_args" != "" ]
 then
-	printf "\n==> Running setup script: $setup_command $setup_args\n"
+	qprintf "\n==> Running setup script: $setup_command $setup_args\n"
 	$setup_command $setup_args
 fi
 
@@ -1310,9 +1333,9 @@ clone_sec=$((stop_sec - start_sec))
 
 stop_time=`date '+%H:%M:%S'`
 
-echo "==============================="
-echo "Done with clone to /dev/$dst_disk"
-printf "   Start - %s    End - %s    Elapsed Time - %d:%02d\n" \
+qecho "==============================="
+qecho "Done with clone to /dev/$dst_disk"
+qprintf "   Start - %s    End - %s    Elapsed Time - %d:%02d\n" \
 		"$start_time" "$stop_time" "$((clone_sec / 60))" "$((clone_sec % 60))"
 
 if ((!unattended))
@@ -1326,6 +1349,6 @@ Hit Enter when ready to unmount the /dev/$dst_disk partitions..."
 fi
 
 unmount_list "$unmount_list"
-printf "===============================\n\n"
+qprintf "===============================\n\n"
 
 exit 0
