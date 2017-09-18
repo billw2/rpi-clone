@@ -1,6 +1,6 @@
 #!/bin/bash
 
-version=2.0.1
+version=2.0.2
 
 PGM=`basename $0`
 setup_command="$PGM-setup"
@@ -67,8 +67,8 @@ usage()
 	echo $"
 usage: $PGM sdN {-v|--verbose} {-f|--force-initialize}
          {-u|--unattended} {-U|--Unattended} {-q|--quiet}
-         {-s|--setup} {-e|--edit-fstab name }
-         {-m|--mountdir dir }
+         {-s|--setup} {-e|--edit-fstab sdX }
+         {-m|--mountdir dir } {-l|--leave-sd-usb-boot}
          {-a|--all-sync} {-F|--Force-sync} {-x} {-V|--version}
 
     -v      - verbose rsync, list all files as they are copied.
@@ -85,6 +85,8 @@ usage: $PGM sdN {-v|--verbose} {-f|--force-initialize}
                 device 'sdX'.  This is Only for fstabs that use device names.
     -m dir  - Add dir to a custom list of mounted directories to sync.  The
                 root directory is always synced.  NA when initializing.
+    -l      - leave SD card to USB boot alone when cloning to SD card mmcblk0
+                from a USB boot.  This preserves a SD card to USB boot setup.
     -a      - Sync all partitions if types compatible, not just mounted ones.
     -F      - force file system sync even if errors.
                 If source used > destination space error, do the sync anyway.
@@ -101,8 +103,8 @@ usage: $PGM sdN {-v|--verbose} {-f|--force-initialize}
 
     $ sudo rpi-clone sda
 
-  $PGM can be from a booted SD card or USB disk.  For a complete description
-  and examples, see the README.md at:
+  Clones can be from a booted SD card or USB disk.  For a description, example
+  clone runs and example usage of above options, see the README.md at:
 
       https://github.com/billw2/rpi-clone
 
@@ -386,6 +388,25 @@ print_options()
 		return
 	fi
 	echo $"---------------------------------------------------------------------------"
+
+	if [ "$edit_fstab_name" != "" ]
+	then
+		printf "%-22s : %s\n" "-e clone fstab edit" \
+				"edit $src_part_base device entries to $edit_fstab_name"
+	fi
+	if ((leave_sd_usb_boot))
+	then
+		if ((SD_slot_dst))
+		then
+			msg="leave SD card cmdline.txt bootable to USB"
+		elif ((SD_slot_boot))
+		then
+			msg="install boot to USB cmdline.txt on SD card"
+		else
+			msg="-l ignored.  Src or dst is not a SD card slot."
+		fi
+		printf "%-22s : %s\n" "-l SD to USB boot mode" "$msg"
+	fi
 	if [ "$setup_args" != "" ]
 	then
 		printf "%-22s : %s\n" "Run setup script" "$setup_command $setup_args"
@@ -403,7 +424,7 @@ get_src_disk()
 	num="${partition: -1}"
 	if [[ $disk == *"mmcblk"* ]]
 	then
-		SD_card_boot=1
+		SD_slot_boot=1
 		disk=${disk:0:7}
 		src_part_base=${disk}p
 	fi
@@ -416,7 +437,8 @@ get_src_disk()
 #
 src_boot_dev=`findmnt /boot -o source -n`
 src_root_dev=`findmnt / -o source -n`
-SD_card_boot=0
+SD_slot_boot=0
+SD_slot_dst=0
 src_part_base=""
 
 boot_part_num=0
@@ -445,7 +467,7 @@ fi
 
 if [ "$src_disk" != "$src_root_disk" ]
 then
-	if ((SD_card_boot))
+	if ((SD_slot_boot))
 	then
 		# Handle SD card boots with root on different USB disk device.
 		# But will assume SD card has a root partition just above its root.
@@ -591,7 +613,7 @@ unattended=0
 Unattended=0
 quiet=0
 custom_sync=0
-
+leave_sd_usb_boot=0
 
 while [ "$1" ]
 do
@@ -659,6 +681,9 @@ do
 				usage_error=1
 			fi
 			custom_sync=1
+			;;
+		-l|--leave-sd-usb-boot)
+			leave_sd_usb_boot=1
 			;;
 		-F|--Force-sync)
 			force_sync=1
@@ -777,6 +802,7 @@ if [[ ${chk_disk: -1} =~ ^[0-9]$ ]]
 then
 	if [[ $dst_disk == *"mmcblk"* ]]
 	then
+		SD_slot_dst=1
 		dst_part_base=${dst_disk}p
 		if [ "$edit_fstab_name" == "" ]
 		then
@@ -1278,11 +1304,17 @@ done
 
 # Fix PARTUUID or device name references in cmdline.txt and fstab
 #
-cmdline_txt=${clone}/boot/cmdline.txt
 fstab=${clone}/etc/fstab
+cmdline_txt=${clone}/boot/cmdline.txt
 
 if [ -f $cmdline_txt ]
 then
+	if ((leave_sd_usb_boot && SD_slot_dst))
+	then
+		qecho "=> Leaving SD to USB boot alone."
+		cp $cmdline_txt ${clone}/boot/cmdline.boot
+		cmdline_txt=${clone}/boot/cmdline.boot
+	fi
 	if grep -q $src_disk_ID $cmdline_txt
 	then
 		qecho "=> Editing $cmdline_txt PARTUUID to use $dst_disk_ID"
@@ -1291,7 +1323,13 @@ then
 	then
 		qecho "=> Editing $cmdline_txt references from $src_part_base to $edit_fstab_name"
 		sed -i "s/${src_part_base}/$edit_fstab_name/" "$cmdline_txt"
-	fi		
+	fi
+	if ((leave_sd_usb_boot && SD_slot_boot))
+	then
+		qecho "=> Copying USB cmdline.txt to SD card to set up USB boot."
+		cp /boot/cmdline.txt /boot/cmdline.boot
+		cp $cmdline_txt /boot/cmdline.txt
+	fi
 fi
 
 if grep -q $src_disk_ID $fstab

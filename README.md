@@ -5,8 +5,8 @@ the original.  See the examples below.
 
 rpi-clone is a shell script that is for cloning a running
 Raspberry Pi booted source disk (SD card or USB disk) to a destination
-disk which will be bootable. Destination disks are SD cards in a
-USB card reader, USB flash disks, or USB hard drives.
+disk which will be bootable. Destination disks are SD cards in the SD
+card slot or a USB card reader, USB flash disks, or USB hard drives.
 
 rpi-clone may work in SD card booted devices other than a
 Raspberry Pi because when initializing a disk, rpi-clone images a
@@ -100,7 +100,7 @@ issues are handled in a setup script, then rpi-clone should work fine
 creating clone backup disks for a desktop.
 
 ## Usage
-See the examples below.  To get a usage screen showing available options,
+To get a usage screen showing available options,
 run rpi-clone without any arguments:
 ```
 pi@rpi0: $ sudo ./rpi-clone
@@ -108,8 +108,8 @@ No destination disk given.
 
 usage: rpi-clone sdN {-v|--verbose} {-f|--force-initialize}
          {-u|--unattended} {-U|--Unattended} {-q|--quiet}
-         {-s|--setup} {-e|--edit-fstab name }
-         {-m|--mountdir dir }
+         {-s|--setup} {-e|--edit-fstab sdX }
+         {-m|--mountdir dir } {-l|--leave-sd-usb-boot}
          {-a|--all-sync} {-F|--Force-sync} {-x} {-V|--version}
 
     -v      - verbose rsync, list all files as they are copied.
@@ -126,6 +126,8 @@ usage: rpi-clone sdN {-v|--verbose} {-f|--force-initialize}
                 device 'sdX'.  This is Only for fstabs that use device names.
     -m dir  - Add dir to a custom list of mounted directories to sync.  The
                 root directory is always synced.  NA when initializing.
+    -l      - leave SD card to USB boot alone when cloning to SD card mmcblk0
+                from a USB boot.  This preserves a SD card to USB boot setup.
     -a      - Sync all partitions if types compatible, not just mounted ones.
     -F      - force file system sync even if errors.
                 If source used > destination space error, do the sync anyway.
@@ -133,15 +135,12 @@ usage: rpi-clone sdN {-v|--verbose} {-f|--force-initialize}
     -x      - use set -x for very verbose bash shell script debugging
     -V      - print rpi-clone version.
 ```
-+ If /etc/fstab uses device names:
-	+ SD card to bootable USB flash or hard disk clones: use "-e sdX"
-      to set up the destination fstab and cmdline.txt.
-	+ USB disk to SD card slot (mmcblk0) clones: "-e mmcblk0p" is assumed.
++ See examples below for command line options usage.
 + rpi-clone version 1 briefly had a -s option that is replaced with a
   -s option that has different meaning.
 
 ## rpi-clone Example Runs
-#### 1) First clone to a new SD card 
+#### 1) First clone to a new SD card in USB card reader
 In this example a new SD card in a USB card reader has been plugged in
 that I want to clone to.  It shows up as sdb because I have another USB
 disk sda plugged in. Look in /proc/partitions to see where yours is.
@@ -182,7 +181,7 @@ Optional destination rootfs /dev/sdb2 label (16 chars max): SD-RPI-8a
 ... 
 ```
 
-#### 2) Subsequent clone to the same SD card as example 1
+#### 2) Subsequent clone to the same SD card in USB card reader as example 1
 This time the destination partition type will match the source booted
 types, and I'll add a rpi-clone-setup script -s arg to set a
 different destination disk hostname.
@@ -210,54 +209,113 @@ Verbose mode           : no
 Ok to proceed with the clone?  (yes/no): 
 ```
 
-#### 3) Creating a USB bootable disk - fstab uses device names
-Assuming the destination USB flash or hard drive disk shows up as sdb
-when plugged in, run the command:
-```
-$ rpi-clone -e sda sdb
-```
-+ Destination disk "sdb" will be synced (or initialized if required).
-+ The "-e sda" means to edit the destination /etc/fstab to use "sda"
-for the root (will be sda1) and /boot (will be sda2) lines.
-Also, the destination disk /boot/cmdline.txt
-will be edited to use root=/dev/sda2.
-I am expecting that when the disk is plugged in for booting
-to, it will be sda.
-+ rpi-clone will not edit the currently booted SD card cmdline.txt, so
-the destination cannot be USB booted until there is a boot with a SD card
-plugged in that has had its /boot/cmdline.txt edited as well.  The edit
-will need to set root=/dev/sda2.
-
-Now when the Pi is booted with a SD card that has a root=/dev/sda2 in its
-cmdline.txt, sda2 will be the root that is booted.  The fstab there will
-cause /dev/sda1 to be mounted on /boot. So, after the boot, the /boot from
-the SD card that initiated the boot is not being used.
-
-#### 4) Cloning back to a mmcblk0 SD card from a USB boot - fstab uses device names
-For this example, assume the USB bootable disk created in example 3
-has been booted.  The SD card used to initiate the boot is no longer in use
-because the booted file system has /boot mounted from /dev/sda1 as was
-edited into the fstab and not /dev/mmcblk0p1.
-So the SD card can be removed and another inserted that
-I want to clone to.  I do that and run:
-```
-$ rpi-clone mmcblk0
-````
-+ The destination disk mmcblk0 will be synced or initialized.
-+ When cloning to mmcblk0, rpi-clone knows that it is an SD card
-and assumes the fstab and cmdline.txt need to edited so that the
-card will be bootable.  So "-e mmcblk0p" is assumed and does not need
-to be given in the rpi-clone command.
-
-
-#### 5) Cloning a Pi3 when fstab uses PARTUUID
-If fstab and cmdline.txt use PARTUUID, rpi-clone always edits
+#### 3) Cloning a Pi3 when fstab uses PARTUUID
+If fstab and cmdline.txt use PARTUUID as is the case in recent
+Raspbian distributions, rpi-clone always edits**
 the destination fstab and cmdline.txt to use the PARTUUID of the
 destination disk.  So the destination is always bootable.  If it
 is a USB flash or hard drive it is automatically bootable on a Pi3
 as a USB disk so long as the Pi3 has been USB boot enabled with
-a program_usb_boot_mode=1 line in /boot/config.txt.  No special
--e command line arg or SD card preparation is necessary.
+a program_usb_boot_mode=1 line in /boot/config.txt.
+
+** There is one exception.  When using the -l option, which is used for
+creating or preserving a special SD card to USB boot, the cmdline.txt
+on the SD card is not edited after a clone to the SD card, see
+examples 4 and 5.
+
+#### 4) Creating a USB bootable disk for other than a USB enabled Pi3
++ Warning Note: I have to consider this example experimental because
+after doing it on a Pi using device names, /dev/sda1 was not mounted
+on /boot after the boot completed but syslog said it did mount.
+And after booting a "mount /boot" command worked so the fstab was right.
+So far I don't know where the problem is.
+In any case, if you do this example, check /boot after
+the USB boot to make sure it was mounted.  This should not affect
+example 5 which works, but don't do example 5 until you are sure the
+USB boot has /dev/sda1 mounted on /boot.
+
+rpi-clone can be used to create a SD card to USB boot setup and preserve
+that setup when cloning from a USB boot back to the SD card slot.
+With the SD card booted and a target USB disk plugged in and assuming
+the USB disk shows up as sda, the initial clone command depends on
+fstab usage of device names or PARTUUID.
+
+=> Before you do this, have a backup of your booted SD card made
+as in example 2 without the -l option because these steps will
+change the booted SD card cmdline.txt to a USB boot.
+
+If fstab is using PARTUUID, run:
+```
+$ rpi-clone -l sda
+```
+Or if fstab is using device names, run:
+```
+$ rpi-clone -l -e sda sda
+```
++ Destination disk "sda" will be synced or initialized if required (or add
+the -f option to force initialize).
++ After files are synced the destination sda fstab and cmdline.txt will
+be edited to reference either device names or PARTUUID for the USB disk.
+For the fstab uses device names case, the "-e sda" means to edit the
+destination /etc/fstab to use "sda" for the root (will be sda1) and
+/boot (will be sda2) lines. Also, the destination disk /boot/cmdline.txt
+will be edited to use root=/dev/sda2.  It is expected that when the USB disk
+is plugged in for booting to, it will be sda and this will be a cause
+of boot failure if it is not.  So using PARTUUID is better because that
+will reliably boot.
++ The -l option causes the SD card cmdline.txt to be backed up to
+cmdline.boot and the destination USB disk cmdline.txt to be copied
+to the SD card.  Since the USB cmdline.txt was edited to reference
+the USB disk, the next Pi boot will start with the SD card
+/boot partition, but will redirect to using the USB root partition.
+Since the USB fstab was edited to reference the USB disk, the Pi will boot
+with the USB partition 1 mounted on /boot.
+The SD card /boot partition that initiated the boot process
+is no longer in use but can remain in place for subsequent
+SD card to USB boots.  To make the SD card standalone bootable
+again, its cmdline.boot can be moved back to cmdline.txt.
+
++ If -l is not used, rpi-clone will not replace the currently booted SD card
+cmdline.txt and it will need to be edited by hand for the USB boot to work.
+
+Now when the Pi is booted from SD card to USB and the SD card is no longer
+in use, the SD card slot is available for cloning to.
+
+#### 5) Cloning back to SD cards in the SD card slot from USB boots
+Whether the boot was a Pi3 straight to USB or a SD card to USB,
+the SD card is not in use so it is free** to clone back to.  This
+creates a standalone bootable SD card:
+```
+$ rpi-clone mmcblk0
+```
+However, for the case where the boot was SD card to USB,
+this destroys the ability of the SD card to boot to USB.
+To preserve that SD to USB boot setup, run:
+```
+$ rpi-clone -l mmcblk0
+```
++ The SD card is cloned to as before.  It now has the USB /boot/cmdline.txt.
++ But the -l option prevents editing that cmdline.txt to reference the SD card.
+It is left alone so that it still references the USB root partition.
+So the clone has created USB disk to SD card backup  while preserving
+the SD card to USB boot setup.  On the SD card a backup cmdline.boot
+is created and edited to reference the SD card.  That backup can be moved
+to be cmdline.txt to make the SD card standalone bootable should
+you ever want to do that.
+Or you could just clone to the SD card without using -l.
++ Both above mmcblk0 clone commands apply whether using PARTUUID or
+device names.  When using device names and cloning to SD cards,
+rpi-clone knows fstab device names need editing so "-e mmcblk0p" is assumed.
+Now the SD card can be left in permanently and periodically cloned to for
+backups and reboots to USB will work as you want.  Or other SD
+cards can be inserted to create a set of backups.
+If making a clone for another Pi that will be SD card bootable, don't use -l.
++ **Warning: this works if the original SD card to USB boot setup has edited
+the USB /etc/fstab to reference USB partitions as is done by rpi-clone
+when creating a USB bootable disk with -l.  If you have an existing
+SD card to USB boot setup where this was not done, then your USB boot
+likely has the SD card /boot partition mounted, the SD card is in use
+and using rpi-clone for a clone back to the SD card slot will not work.
 
 
 #### 6) Creating a Pi3 bootable USB hard drive with extra partitions
