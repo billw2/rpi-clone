@@ -224,16 +224,6 @@ on the SD card is not edited after a clone to the SD card, see
 examples 4 and 5.
 
 #### 4) Creating a USB bootable disk for other than a USB enabled Pi3
-+ Warning Note: I have to consider this example experimental because
-after doing it on a Pi using device names, /dev/sda1 was not mounted
-on /boot after the boot completed but syslog said it did mount.
-And after booting a "mount /boot" command worked so the fstab was right.
-So far I don't know where the problem is.
-In any case, if you do this example, check /boot after
-the USB boot to make sure it was mounted.  This should not affect
-example 5 which works, but don't do example 5 until you are sure the
-USB boot has /dev/sda1 mounted on /boot.
-
 rpi-clone can be used to create a SD card to USB boot setup and preserve
 that setup when cloning from a USB boot back to the SD card slot.
 With the SD card booted and a target USB disk plugged in and assuming
@@ -277,6 +267,11 @@ again, its cmdline.boot can be moved back to cmdline.txt.
 
 + If -l is not used, rpi-clone will not replace the currently booted SD card
 cmdline.txt and it will need to be edited by hand for the USB boot to work.
+
++ Also a caution note if fstab uses device names: check your
+/boot to be sure it is mounted with /dev/sda1 after booting to USB.
+I have a Pi where this fails even though syslog says it mounted.
+Just be sure to check when you first do this and before you try example 5.
 
 Now when the Pi is booted from SD card to USB and the SD card is no longer
 in use, the SD card slot is available for cloning to.
