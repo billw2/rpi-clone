@@ -1,6 +1,6 @@
 #!/bin/bash
 
-version=2.0.2
+version=2.0.4
 
 PGM=`basename $0`
 setup_command="$PGM-setup"
@@ -70,6 +70,7 @@ usage: $PGM sdN {-v|--verbose} {-f|--force-initialize}
          {-s|--setup} {-e|--edit-fstab sdX }
          {-m|--mountdir dir } {-l|--leave-sd-usb-boot}
          {-a|--all-sync} {-F|--Force-sync} {-x} {-V|--version}
+         {--convert-fstab-to-partuuid}
 
     -v      - verbose rsync, list all files as they are copied.
     -f      - force initialize the destination disk by imaging the booted disk.
@@ -113,7 +114,6 @@ usage: $PGM sdN {-v|--verbose} {-f|--force-initialize}
   Download:
     git clone https://github.com/billw2/rpi-clone
 "
-
 	exit 1
 	}
 
@@ -614,6 +614,7 @@ Unattended=0
 quiet=0
 custom_sync=0
 leave_sd_usb_boot=0
+convert_to_partuuid=0
 
 while [ "$1" ]
 do
@@ -688,6 +689,9 @@ do
 		-F|--Force-sync)
 			force_sync=1
 			;;
+		--convert-fstab-to-partuuid)
+			convert_to_partuuid=1
+			;;
 		-V|--version)
 			echo $PGM Version: $version
 			exit 0
@@ -732,6 +736,57 @@ if ((usage_error))
 then
 	echo ""
     exit 1
+fi
+
+if ((convert_to_partuuid))
+then
+	unattended=0
+	Unattended=0
+
+	fstab=/etc/fstab
+	fstab_tmp=/tmp/fstab
+	fstab_save=${fstab}.${PGM}-save
+	confirm "This will change your $fstab, are you sure?" "abort"
+
+	cp $fstab $fstab_tmp
+	printf "\nConverting $fstab from device names to PARTUUID\n"
+	count=0
+	for ((p = 1; p <= n_src_parts; p++))
+	do
+		if grep -q "^/dev/${src_partition[p]}" $fstab_tmp
+		then
+			partuuid=$(lsblk -n -o PARTUUID /dev/${src_partition[p]})
+			sed -i "s/\/dev\/${src_partition[p]}/$partuuid/" $fstab_tmp
+			printf "  Editing $fstab, changing /dev/${src_partition[p]} to $partuuid\n"
+			((++count))
+		fi
+	done
+	if ((count))
+	then
+		cp $fstab $fstab_save
+		cp $fstab_tmp $fstab
+		printf "Your original fstab is backed up to $fstab_save\n"
+
+		cmdline_txt=/boot/cmdline.txt
+		cmdline_save=$cmdline_txt.${PGM}-save
+		if [ -f $cmdline_txt ] && grep -q "$src_root_dev" $cmdline_txt
+		then
+			root_part=${src_partition[root_part_num]}
+			partuuid=$(lsblk -n -o PARTUUID $src_root_dev)
+			if [ "$partuuid" != "" ]
+			then
+				cp $cmdline_txt $cmdline_save
+				sed -i "s/\/dev\/$root_part/PARTUUID=$partuuid/" $cmdline_txt
+				printf "  Editing $cmdline_txt, changing root=$src_root_dev to root=PARTUUID=$partuuid\n"
+				printf "Your original cmdline.txt is backed up to $cmdline_save\n"
+			fi
+		fi
+	else
+		printf "Could not find any $src_disk partition names in $fstab, nothing changed.\n"
+	fi
+	rm $fstab_tmp
+	echo ""
+	exit 0
 fi
 
 # dst_mount_flag enumerations:
@@ -1031,10 +1086,12 @@ The destination disk is too small.
 					"Destination last partition resize to $space_readable"
 		printf "%-22s : %s\n" "" \
 					"  is too small to hold source used $used_readable."
-		if [ "$n_src_parts" == "$root_part_num" ]
+		if [ "$n_src_parts" == "$root_part_num" ] && ((!force_sync))
 		then
 			printf "%-22s : %s\n" "" \
 					"  This is the root partition, so aborting!"
+			printf "%-22s : %s\n" "" \
+					"  Use -F to override."
 			abort=1
 		elif ((!force_sync))
 		then

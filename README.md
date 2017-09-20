@@ -19,7 +19,7 @@ grub can be configured for this to be an officially  supported way of
 using rpi-clone.
 
 #### Clone by initialization
-Source disk mounted partition file system types are compared to
+Source disk mounted partition types are compared to
 corresponding destination disk partitions.
 If the types are not compatible, then the clone is an
 initialization.  First, the destination partition structure is
@@ -111,6 +111,7 @@ usage: rpi-clone sdN {-v|--verbose} {-f|--force-initialize}
          {-s|--setup} {-e|--edit-fstab sdX }
          {-m|--mountdir dir } {-l|--leave-sd-usb-boot}
          {-a|--all-sync} {-F|--Force-sync} {-x} {-V|--version}
+         {--convert-fstab-to-partuuid}
 
     -v      - verbose rsync, list all files as they are copied.
     -f      - force initialize the destination disk by imaging the booted disk.
@@ -140,6 +141,25 @@ usage: rpi-clone sdN {-v|--verbose} {-f|--force-initialize}
   -s option that has different meaning.
 
 ## rpi-clone Example Runs
+#### An aside note
+You will see in one example below that the clone command will need
+to be run differently depending on if device names or PARTUUID is used
+in /etc/fstab.  If device names are used you will have to add a "-e sdX"
+where sdX will be the "expected" disk name a USB disk is assigned during
+boot.  Usually this works, but if you have multiple disk devices plugged
+into USB ports it may not work.  While this may not be an issue for you now,
+recent Raspbian releases now use PARTUUID as standard and in the long
+run you may at some point want to convert.
+So as a convenience, if you want to convert to using
+PARTUUID, rpi-clone can do that for you, run:
+```
+$ sudo rpi-clone --convert-fstab-to-partuuid
+```
+You only need to ever do this once.  Subsequent rpi-clone runs will propagate
+PARTUUID usage to disks that you clone to.  This also converts cmdline.txt.
+But get some clone backups before doing this because this changes
+your booted disk.
+
 #### 1) First clone to a new SD card in USB card reader
 In this example a new SD card in a USB card reader has been plugged in
 that I want to clone to.  It shows up as sdb because I have another USB
@@ -313,7 +333,44 @@ likely has the SD card /boot partition mounted, the SD card is in use
 and using rpi-clone for a clone back to the SD card slot will not work.
 
 
-#### 6) Creating a Pi3 bootable USB hard drive with extra partitions
+#### 6) Clone to smaller 4GB SD card
+I happen to have an old 4GB SD card and here's a try to clone to it: 
+```
+root@rpi2: ~$ rpi-clone sda
+
+Booted disk: mmcblk0 15.8GB                Destination disk: sda 4.0GB
+---------------------------------------------------------------------------
+Part      Size    FS     Label           Part   Size    FS     Label
+1 /boot   58.4MB  fat16  --              1      58.4MB  fat16  --
+2 root    15.8GB  ext4   SD-RPI-16N      2       3.9GB  ext4   --
+---------------------------------------------------------------------------
+== SYNC mmcblk0 file systems to sda ==
+/boot       (22.5MB used)    : SYNC to sda1 (58.4MB size)
+/           (5.9GB used)     : SYNC to sda2 (3.9GB size)
+---------------------------------------------------------------------------
+Run setup script       : no
+Verbose mode           : no
+-----------------------:
+** FATAL **            : Partition 2: source used > destination space.
+-----------------------:
+
+Aborting!
+  Use -F to override used > space fail.
+
+```
+So even if rpi-clone thinks that the sync won't work because of lack of
+space, there is a -F option which will allow the clone to proceed
+anyway.  The interesting thing about this case is that while this might
+seem a bad idea, the sync will actually come close to succeeding.  That's
+because the root used space includes a 1.8GB file system based
+swap file (/var/swap) that will be excluded from the sync.  If this
+clone is forced with -F, the card may boot, but there could be some missing
+files if the rsync runs out of space and fails to complete and some things
+would not work.
+This is just a FYI.
+
+
+#### 7) Creating a Pi3 bootable USB hard drive with extra partitions
 I wanted to have a Pi3 hard drive USB boot with extra data partitions
 and I want to be able to clone back to 2 partition SD cards for use
 in other SD card booted Pis.  So when I initially clone to the hard drive
@@ -370,10 +427,10 @@ and powered back on into a hard drive boot.  I had previously boot
 enabled the Pi3.
 
 ## Cloning from a USB booted Pi with extra partitions
-Now I have booted the USB hard drive I cloned to in example 6 and will
+Now I have booted the USB hard drive I cloned to in example 7 and will
 try a few clones.
 
-#### 7) USB disk routine clone to 16GB SD card
+#### 8) USB disk routine clone to 16GB SD card
 For this case I haven't mounted any of the extra partitions and
 the Pi has only the /boot partition mounted.  The kernel has seen my hard
 drive as sdb but I'm using PARTUUID in fstab so there's no problem.
@@ -402,7 +459,7 @@ Verbose mode           : no
 Ok to proceed with the clone?  (yes/no): 
 ```
 
-#### 8) USB disk with mounted partition 5 clone to 16GB SD card
+#### 9) USB disk with mounted partition 5 clone to 16GB SD card
 Now I try the clone with one of my extra partitions mounted:
 ```
 pi@rpi0: ~$ sudo  rpi-clone sda
@@ -426,7 +483,7 @@ rpi-clone sees the mounted partition 5 and wants to clone it but finds
 there's not enough space on the destination disk and won't let me.
 A bigger disk is needed to clone all the way through partition 5.
 
-#### 9) USB disk with mounted partition 5 clone to 16GB SD card try 2
+#### 10) USB disk with mounted partition 5 clone to 16GB SD card try 2
 I've got things I'm working on and don't want to unmount the partition
 to make the clone work, so I use the -m option to tell rpi-clone to
 only clone root and /boot and exclude any other directory mounts not given
