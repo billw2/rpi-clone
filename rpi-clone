@@ -1,6 +1,9 @@
 #!/bin/bash
 
-version=2.0.5
+version=2.0.6
+
+# auto run grub-install if grub detected
+grub_auto=1
 
 PGM=`basename $0`
 setup_command="$PGM-setup"
@@ -778,7 +781,7 @@ then
 		if grep -q "^/dev/${src_partition[p]}" $fstab_tmp
 		then
 			partuuid=$(lsblk -n -o PARTUUID /dev/${src_partition[p]})
-			sed -i "s/\/dev\/${src_partition[p]}/$partuuid/" $fstab_tmp
+			sed -i "s/\/dev\/${src_partition[p]}/PARTUUID=$partuuid/" $fstab_tmp
 			printf "  Editing $fstab, changing /dev/${src_partition[p]} to $partuuid\n"
 			((++count))
 		fi
@@ -1341,7 +1344,7 @@ else
 		printf "\nAborting!\n"
 		if ((!space_ok))
 		then
-			printf "  Use -F to override used > space fail.\n"
+			printf "  Use -F to override used > space fail or -m to select mounts to clone.\n"
 		fi
 		if ((!all_sync_mount_ok))
 		then
@@ -1475,6 +1478,11 @@ then
 	dst_root_vol_name="no label"
 fi
 
+if [ -d /boot/grub ] && ((grub_auto))
+then
+	echo "grub-install --root-directory=$clone /dev/$dst_disk"
+	grub-install --root-directory=$clone /dev/$dst_disk
+fi
 
 if [ "$setup_args" != "" ]
 then
