@@ -1,6 +1,6 @@
 #!/bin/bash
 
-version=2.0.4
+version=2.0.5
 
 PGM=`basename $0`
 setup_command="$PGM-setup"
@@ -65,35 +65,46 @@ HOSTNAME=`hostname`
 usage()
 	{
 	echo $"
-usage: $PGM sdN {-v|--verbose} {-f|--force-initialize}
+usage: $PGM sdN {-v|--verbose} {-f|--force-initialize} {-f2}
          {-u|--unattended} {-U|--Unattended} {-q|--quiet}
          {-s|--setup} {-e|--edit-fstab sdX }
          {-m|--mountdir dir } {-l|--leave-sd-usb-boot}
          {-a|--all-sync} {-F|--Force-sync} {-x} {-V|--version}
          {--convert-fstab-to-partuuid}
 
-    -v      - verbose rsync, list all files as they are copied.
-    -f      - force initialize the destination disk by imaging the booted disk.
-    -u      - unattended clone if not initializing.  No confirmations asked,
-                but abort if disk needs initializing or on error.
+    -v	    - verbose rsync, list all files as they are copied.
+    -f	    - force initialize the destination disk by imaging the booted disk
+		partition structure.  File systems are then synced or imaged.
+    -f2	    - force initialize only the first 2 partitions to the destination.
+		So a multi partition USB boot can initialize clone back to
+		a 2 partition SD card.
+    -u	    - unattended clone if not initializing.  No confirmations asked,
+		but abort if disk needs initializing or on error.
     -U      - unattended even if initializing. No confirmations asked,
                 but abort only on errors.
     -q      - quiet mode, no output unless errors or initializing. Implies -u.
-    -s host - add 'host' to args passed to script $setup_command and run it
+    -s host - add 'host' to args passed to script rpi-clone-setup and run it
                 after cloning but before unmounting partitions. For setting
-                clone disk hostname, but args can be what the script expects.
+		clone disk hostname, but args can be what the script expects.
+                You can give multiple "-s arg" options.
     -e sdX  - edit destination fstab to change booted device names to new
-                device 'sdX'.  This is Only for fstabs that use device names.
-    -m dir  - Add dir to a custom list of mounted directories to sync.  The
-                root directory is always synced.  NA when initializing.
+      	        device 'sdX'.  This is Only for fstabs that use device names.
+                Used for setting up a USB bootable disk.
+    -m dir  - Add dir to a custom list of mounted directories to sync.  Then
+                the custom list will be synced instead of the default of all
+                mounted directories.  The root directory is always synced.
+                Not for when initializing.
     -l      - leave SD card to USB boot alone when cloning to SD card mmcblk0
-                from a USB boot.  This preserves a SD card to USB boot setup.
+                from a USB boot.  This preserves a SD card to USB boot setup
+                by leaving the SD card cmdline.txt using the USB root.	When
+                cloning to USB from SD card this option sets up the SD card
+                cmdline.txt to boot to the USB disk.
     -a      - Sync all partitions if types compatible, not just mounted ones.
     -F      - force file system sync even if errors.
                 If source used > destination space error, do the sync anyway.
-                If a source partition mount error, skip it and do other syncs.
+		If a source partition mount error, skip it and do other syncs.
     -x      - use set -x for very verbose bash shell script debugging
-    -V      - print $PGM version.
+    -V      - print rpi-clone version.
 
   Clone a booted file system to a destination disk which is bootable.
 
@@ -315,7 +326,7 @@ print_sync_actions()
 		then
 			readable ${src_used_sectors[p]} "512" used
 			readable ${dst_size_sectors[p]} "512" size
-			printf "%-12s%-16s : SYNC %s\n" \
+			printf "%-22s%-14s : SYNC %s\n" \
 					"${src_mounted_dir[p]}" "(${used} used)" \
 					"$flow (${size} size)"
 		fi
@@ -324,8 +335,6 @@ print_sync_actions()
 
 print_image_actions()
 	{
-	last_sector_size=$1
-
 	for ((p = 1; p <= n_src_parts; p++))
 	do
 		if ((!src_exists[p]))
@@ -344,39 +353,42 @@ print_image_actions()
 		fi
 
 		action=""
-
-		if [ "${src_mounted_dir[p]}" == "/boot" ] && ((p == 1))
+		if ((p <= n_image_parts))
 		then
-			action="IMAGE     $flow  FSCK"
-		elif [ "$fs_type" == "swap" ]
-		then
-			action="MKSWAP"
-		elif ((p != ext_part_num))
-		then
-			if [ "${src_mounted_dir[p]}" != "" ] || ((p == n_src_parts))
+			if [ "${src_mounted_dir[p]}" == "/boot" ] && ((p == 1))
 			then
-				if ((p < n_src_parts || last_part_space || force_sync))
+				action="IMAGE     $flow  FSCK"
+			elif [ "$fs_type" == "swap" ]
+			then
+				action="MKSWAP"
+			elif ((p != ext_part_num))
+			then
+				if [ "${src_mounted_dir[p]}" != "" ] || ((p == n_src_parts))
 				then
-					action="MKFS SYNC $flow"
+					if ((p < n_src_parts || last_part_space || force_sync))
+					then
+						action="MKFS SYNC $flow"
+					else
+						action="MKFS **NO SYNC**"
+					fi
 				else
-					action="MKFS **NO SYNC**"
+					action="IMAGE     $flow"
 				fi
-			else
-				action="IMAGE     $flow"
 			fi
 		fi
 
-		if ((p == n_src_parts))
+		if ((p == n_image_parts))
 		then
-			readable ${src_used_sectors[n_src_parts]} "512" used
-			printf "%-12s%-16s : RESIZE($last_sector_size) %s\n" \
+			readable ${src_used_sectors[n_image_parts]} "512" used
+			printf "%-22s%-14s : RESIZE($image_space_readable) %s\n" \
 						"$pname" "(${used} used)" "$action"
-		elif ((src_used_sectors[$p] > 0))
+		elif ((src_used_sectors[$p] > 0 && p < n_image_parts))
 		then
 			readable ${src_used_sectors[p]} "512" used
-			printf "%-12s%-16s : $action\n" "$pname" "(${used} used)"
-		else
-			printf "%-28s : $action\n" "$pname"
+			printf "%-22s%-14s : $action\n" "$pname" "(${used} used)"
+		elif [ "$action" != "" ]
+		then
+			printf "%-36s : $action\n" "$pname"
 		fi
 	done
 	}
@@ -389,6 +401,11 @@ print_options()
 	fi
 	echo $"---------------------------------------------------------------------------"
 
+	if ((force_2_parts))
+	then
+		printf "%-22s : %s\n" "-f2" \
+				"force initialize to first two partitions only"
+	fi
 	if [ "$edit_fstab_name" != "" ]
 	then
 		printf "%-22s : %s\n" "-e clone fstab edit" \
@@ -606,6 +623,7 @@ edit_fstab_name=""
 verbose="no"
 
 force_initialize=0
+force_2_parts=0
 force_sync=0
 all_sync=0
 usage_error=0
@@ -650,6 +668,10 @@ do
 			;;
 		-f|--force-initialize)
 			force_initialize=1
+			;;
+		-f2)
+			force_initialize=1
+			force_2_parts=1
 			;;
 		-x)
 			set -x
@@ -859,7 +881,8 @@ then
 	then
 		SD_slot_dst=1
 		dst_part_base=${dst_disk}p
-		if [ "$edit_fstab_name" == "" ]
+		if    [ "$edit_fstab_name" == "" ] \
+		   && ! grep -q "^PARTUUID=" /etc/fstab
 		then
 			edit_fstab_name=$dst_part_base
 			assumed_fstab_edit=1
@@ -874,7 +897,6 @@ then
 		confirm "Continue anyway?" "abort"
 	fi
 fi
-
 
 if [ "$src_disk" == "$dst_disk" ]
 then
@@ -944,6 +966,9 @@ do
 done
 
 fs_match=1
+root_part_match=1
+first_mismatch=""
+
 initialize=$((force_initialize))
 
 for ((p = 1; p <= n_src_parts; p++))
@@ -966,7 +991,18 @@ do
 		fi
 		if ((!tmp_match)) && ((src_sync_part[p]))
 		then
+			if ((!force_initialize))
+			then
+				if ((p <= root_part_num))
+				then
+					first_mismatch="- types mismatch"
+					root_part_match=0
+				else
+					first_mismatch="$p ${src_mounted_dir[p]} - destination missing"
+				fi
+			fi
 			fs_match=0
+			break
 		fi
 	fi
 done
@@ -1052,25 +1088,44 @@ Use -U for unattended even if initializing.
 		reason="forced by option"
 	fi
 
-	start_sector=${src_start_sector[$n_src_parts]}
+	n_image_parts=$((force_2_parts ? 2 : n_src_parts))
+
+	start_sector=${src_start_sector[$n_image_parts]}
 	last_part_sectors=$((dst_disk_size - start_sector))
-	last_part_used=${src_used_sectors[$n_src_parts]}
+	last_part_used=${src_used_sectors[$n_image_parts]}
 	last_part_space=$(( (last_part_sectors > last_part_used) ? 1 : 0 ))
 
 	if ((last_part_sectors < 7812))
 	then
-		readable $((start_sector + 7812)) "512" min_size
-		echo $"
-To image the booted disk, the minimum destination disk size is $min_size
-The destination disk is too small.
-"
+		if [ "$first_mismatch" != "" ]
+		then
+			printf "%-22s : %s\n" "Initialize required" \
+					"partition $first_mismatch."
+			if ((root_part_match))
+			then
+				printf "%-22s : %s\n" " " \
+						"  Unmount source partitions or use -m"
+			else
+				readable $((start_sector + 7812)) "512" min_size
+				printf "%-22s : %s\n" " " \
+						"  The minimum destination disk size is $min_size"
+				printf "%-22s : %s\n" " " \
+						"  The destination disk is too small."
+				if ((n_src_parts > 2))
+				then
+					printf "%-22s : %s\n" " " \
+							"  You could try a two partition -f2 clone."
+				fi
+			fi
+			printf "%-23s:\n" "-----------------------"
+		fi
 		exit 1
 	fi
 
-	readable $((last_part_sectors + 7812)) "512" space_readable
+	readable $((last_part_sectors + 7812)) "512" image_space_readable
 
 	echo "== Initialize: IMAGE $src_disk partition table to $dst_disk - $reason ==" 
-	print_image_actions "$space_readable"
+	print_image_actions
 	print_options
 
 	printf "%-22s : %s\n" "** WARNING **" \
@@ -1083,10 +1138,10 @@ The destination disk is too small.
 	then
 		readable $last_part_used "512" used_readable
 		printf "%-22s : %s\n" "** WARNING **" \
-					"Destination last partition resize to $space_readable"
+				"Destination last partition resize to $image_space_readable"
 		printf "%-22s : %s\n" "" \
-					"  is too small to hold source used $used_readable."
-		if [ "$n_src_parts" == "$root_part_num" ] && ((!force_sync))
+				"  is too small to hold source used $used_readable."
+		if [ "$n_image_parts" == "$root_part_num" ] && ((!force_sync))
 		then
 			printf "%-22s : %s\n" "" \
 					"  This is the root partition, so aborting!"
@@ -1138,10 +1193,16 @@ The destination disk is too small.
 	sync
 
 	sfd0=$(sfdisk -d /dev/$src_disk)
-	part="${src_part_base}$n_src_parts"
+	if ((force_2_parts && (n_src_parts > n_image_parts)))
+	then
+		remove_part_start=${src_partition[3]}
+		sfd0=$(echo "$sfd0" | sed -e "/\/dev\/$remove_part_start/,\$d")
+	fi
+
+	part="${src_part_base}$n_image_parts"
 	sfd1=$(echo "$sfd0" | sed "\/dev\/$part/s/size=[^,]*,//")
 
-	if ((ext_part_num > 0))
+	if ((ext_part_num > 0 && !force_2_parts))
 	then
 		part="${src_part_base}$ext_part_num"
 		sfd1=$(echo "$sfd1" | sed "\/dev\/$part/s/size=[^,]*,//")
@@ -1168,7 +1229,12 @@ The destination disk is too small.
 	partprobe "/dev/$dst_disk"
 	sleep 2
 
-	for ((p = 1; p <= n_src_parts; p++))
+	for ((p = n_image_parts + 1; p <= n_src_parts; p++))
+	do
+		src_sync_part[p]=0
+	done
+
+	for ((p = 1; p <= n_image_parts; p++))
 	do
 		if ((!src_exists[p]))
 		then
@@ -1195,7 +1261,7 @@ The destination disk is too small.
 				mkswap $dst_dev
 			elif ((p != ext_part_num))
 			then
-				if [ "${src_mounted_dir[p]}" != "" ] || ((p == n_src_parts))
+				if [ "${src_mounted_dir[p]}" != "" ] || ((p == n_image_parts))
 				then
 					if [ "$fs_type" == "fat16" ]
 					then
@@ -1207,7 +1273,7 @@ The destination disk is too small.
 					printf "\n  => mkfs -t $fs_type $dst_dev\n"
 					mkfs -t "$fs_type" "$dst_dev" <<< "yes"
 					echo ""
-					if ((p == n_src_parts))
+					if ((p == n_image_parts))
 					then
 						if ((!last_part_space))
 						then
