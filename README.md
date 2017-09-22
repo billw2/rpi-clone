@@ -462,7 +462,7 @@ Note that if I had partitioned the 64GB disk with more than three
 partitions it would have been more difficult to clone down to the
 32GB card.  If there had been 4 partitions, then a smaller disk has
 to be large enough to image the sizes of the first three source partitions.
-If the disk is too small for that, then an initilize clone would be
+If the disk is too small for that, then an initialize clone would be
 limited to a two partition clone as the next example shows.  The other
 alternative would be a manual partition.  The take away is that you need
 to consider how you would be cloning to smaller disks when you partition

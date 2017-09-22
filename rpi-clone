@@ -1,6 +1,6 @@
 #!/bin/bash
 
-version=2.0.7
+version=2.0.8
 
 # auto run grub-install if grub detected
 grub_auto=1
