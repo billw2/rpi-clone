@@ -103,7 +103,7 @@ creating clone backup disks for a desktop.
 To get a usage screen showing available options,
 run rpi-clone without any arguments:
 ```
-pi@rpi0: $ sudo ./rpi-clone
+pi@rpi0: $ sudo rpi-clone
 No destination disk given.
 
 usage: rpi-clone sdN {-v|--verbose} {-f|--force-initialize} {-f2}
@@ -155,6 +155,10 @@ names to PARTUUID.  This is a helper if you wish to convert to PARTUUID as
 is standard in recent Raspbian distributions.  After running, PARTUUID
 usage will propagate to subsequent clones.  This changes the booted fstab
 and cmdline.txt, so have a backup first.
++ FUSE mounts (ssh mounts) should be unmounted before cloning or else the
+directory mounted on will not stat and the directory will not be made on the
+clone.  You will get a readlink stat error from rsync because root can't access
+a users FUSE mount - only the user can.
 
 ## rpi-clone Example Runs
 #### 1) First clone to a new SD card in USB card reader
@@ -173,7 +177,7 @@ bootable when plugged in to the SD card slot.
 + If fstab and cmdline.txt use device names (mmcblk0), then no edits are
 necessary and the card will be bootable when plugged into a SD card slot.
 ```
-pi@rpi0: $ sudo ./rpi-clone sdb
+pi@rpi0: $ sudo rpi-clone sdb
 
 Booted disk: mmcblk0 16.0GB                Destination disk: sdb 8.0GB
 ---------------------------------------------------------------------------
@@ -206,7 +210,7 @@ different destination disk hostname.
 + The setup script will set the hostnames in the destination disk files
 /etc/hostname and /etc/hosts to what I give with -s, in this case rpi2.
  ```
-pi@rpi0: $ sudo ./rpi-clone sdb -s rpi2
+pi@rpi0: $ sudo rpi-clone sdb -s rpi2
 
 Booted disk: mmcblk0 16.0GB                Destination disk: sdb 8.0GB
 ---------------------------------------------------------------------------
@@ -561,7 +565,7 @@ partition I might use later and an extended partition with two logical
 partitions. I run rpi-clone from a SD card boot and it will sync only
 the first two partitions:
 ```
-pi@rpi0: $ sudo ./rpi-clone sdc
+pi@rpi0: $ sudo rpi-clone sdc
 
 Booted disk: mmcblk0 16.0GB                Destination disk: sdc 160.0GB
 ---------------------------------------------------------------------------

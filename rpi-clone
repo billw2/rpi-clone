@@ -1,6 +1,6 @@
 #!/bin/bash
 
-version=2.0.6
+version=2.0.7
 
 # auto run grub-install if grub detected
 grub_auto=1
@@ -969,8 +969,8 @@ do
 done
 
 fs_match=1
-root_part_match=1
-first_mismatch=""
+root_part_match=0
+first_part_mismatch=0
 
 initialize=$((force_initialize))
 
@@ -992,18 +992,13 @@ do
 		then
 			tmp_match=1
 		fi
+		if ((tmp_match && p == root_part_num))
+		then
+			root_part_match=1
+		fi
 		if ((!tmp_match)) && ((src_sync_part[p]))
 		then
-			if ((!force_initialize))
-			then
-				if ((p <= root_part_num))
-				then
-					first_mismatch="- types mismatch"
-					root_part_match=0
-				else
-					first_mismatch="$p ${src_mounted_dir[p]} - destination missing"
-				fi
-			fi
+			first_part_mismatch=$p
 			fs_match=0
 			break
 		fi
@@ -1100,28 +1095,22 @@ Use -U for unattended even if initializing.
 
 	if ((last_part_sectors < 7812))
 	then
-		if [ "$first_mismatch" != "" ]
+		printf "%-22s : %s\n" "** FATAL **" "destination disk is too small."
+		readable $((start_sector + 7812)) "512" min_size
+		printf "%-22s : %s\n" " " \
+					"  Minimum destination disk size is $min_size"
+		if ((root_part_match && first_part_mismatch > root_part_num))
 		then
-			printf "%-22s : %s\n" "Initialize required" \
-					"partition $first_mismatch."
-			if ((root_part_match))
-			then
-				printf "%-22s : %s\n" " " \
-						"  Unmount source partitions or use -m"
-			else
-				readable $((start_sector + 7812)) "512" min_size
-				printf "%-22s : %s\n" " " \
-						"  The minimum destination disk size is $min_size"
-				printf "%-22s : %s\n" " " \
-						"  The destination disk is too small."
-				if ((n_src_parts > 2))
-				then
-					printf "%-22s : %s\n" " " \
-							"  You could try a two partition -f2 clone."
-				fi
-			fi
-			printf "%-23s:\n" "-----------------------"
+			printf "%-22s : %s\n" " " \
+						"  Try unmounting source partitions or use -m"
+		elif ((n_src_parts > 2))
+		then
+			printf "%-22s : %s\n" " " \
+						"  You could try a two partition -f2 clone if it"
+			printf "%-22s : %s\n" " " \
+						"  is OK not to clone partitions above 2."
 		fi
+		printf "%-23s:\n" "-----------------------"
 		exit 1
 	fi
 
@@ -1146,8 +1135,8 @@ Use -U for unattended even if initializing.
 				"  is too small to hold source used $used_readable."
 		if [ "$n_image_parts" == "$root_part_num" ] && ((!force_sync))
 		then
-			printf "%-22s : %s\n" "" \
-					"  This is the root partition, so aborting!"
+			printf "%-22s : %s\n" "** FATAL **" \
+					"This is the root partition, so aborting!"
 			printf "%-22s : %s\n" "" \
 					"  Use -F to override."
 			abort=1
