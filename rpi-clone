@@ -1,6 +1,6 @@
 #!/bin/bash
 
-version=2.0.8
+version=2.0.9
 
 # auto run grub-install if grub detected
 grub_auto=1
@@ -1217,8 +1217,10 @@ Use -U for unattended even if initializing.
 		fi
 	done
 	printf "\n    Resize success.\n\n"
-	partprobe "/dev/$dst_disk"
 	sleep 2
+
+	new_id=$(od -A n -t x -N 4 /dev/urandom | tr -d " ")
+	qprintf "x\ni\n0x$new_id\nr\nw\nq\n" | fdisk /dev/$dst_disk > /dev/null
 
 	for ((p = n_image_parts + 1; p <= n_src_parts; p++))
 	do
