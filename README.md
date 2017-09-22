@@ -1,3 +1,4 @@
+
 ## rpi-clone
 
 Version 2 is a complete rewrite with improved capability over
@@ -457,6 +458,15 @@ Verbose mode           : no
 
 Initialize and clone to the destination disk sdb?  (yes/no): 
 ```
+Note that if I had partitioned the 64GB disk with more than three
+partitions it would have been more difficult to clone down to the
+32GB card.  If there had been 4 partitions, then a smaller disk has
+to be large enough to image the sizes of the first three source partitions.
+If the disk is too small for that, then an initilize clone would be
+limited to a two partition clone as the next example shows.  The other
+alternative would be a manual partition.  The take away is that you need
+to consider how you would be cloning to smaller disks when you partition
+a larger disk for a Pi.
 
 #### 9) Clone 64GB USB disk with extra partitions to new 16GB SD card
 With a USB boot, the SD card slot is available for use, so I plugged in
@@ -555,86 +565,6 @@ Verbose mode           : no
 
 Ok to proceed with the clone?  (yes/no): 
 ```
-
-
-
-#### 10) Cloning to manually partitioned hard drive with swap and extended partitions
-This is an additional demonstration of flexibility in partition structure
-when partitions are manually created.  The manual partition included a swap
-partition I might use later and an extended partition with two logical
-partitions. I run rpi-clone from a SD card boot and it will sync only
-the first two partitions:
-```
-pi@rpi0: $ sudo rpi-clone sdc
-
-Booted disk: mmcblk0 16.0GB                Destination disk: sdc 160.0GB
----------------------------------------------------------------------------
-Part      Size    FS     Label           Part   Size    FS     Label
-1 /boot   58.4MB  fat16  --              1     104.4MB  fat16  --
-2 root    16.0GB  ext4   SD-RPI-s1       2      34.4GB  ext4   --
-                                         3      10.7GB  swap   --
-                                         4     114.8GB  EXT    --
-                                         5      53.7GB  ext4   --
-                                         6      61.1GB  ext4   --
----------------------------------------------------------------------------
-== SYNC mmcblk0 file systems to sdc ==
-/boot       (22.5MB used)    : SYNC to sdc1 (104.4MB size)
-/           (6.0GB used)     : SYNC to sdc2 (34.4GB size)
----------------------------------------------------------------------------
-Run setup script       : no
-Verbose mode           : no
------------------------:
-
-Ok to proceed with the clone?  (yes/no): 
-```
-After running this command, I powered down the Pi, removed the SD card
-and powered back on into a hard drive boot.  I had previously boot
-enabled the Pi3.
-
-
-
-#### 11) USB disk clone to large USB disk
-A final example shows a clone from the hard drive set up
-in example 11 to another hard drive. For this example I'm
-plugging in a drive I happen to use for backing up my desktop,
-so the partition types won't match and rpi-clone will want to do an
-initialize.  rpi-clone duplicates the partition structure and makes
-the swap partition.  This example gives a clue
-how rpi-clone would work if run on a Linux desktop.
-```
-pi@rpi0: ~$ sudo  rpi-clone sda            
-
-Booted disk: sdb 160.0GB                   Destination disk: sda 320.1GB
----------------------------------------------------------------------------
-Part         Size    FS     Label           Part   Size    FS    Label
-1 /boot     104.4MB  fat16  --              1      52.4GB  ext4  --
-2 root       34.4GB  ext4   --              2      52.4GB  ext4  gkrellm6-p2
-3            10.7GB  swap   --              3      12.6GB  swap  --
-4           114.8GB  EXT    --              4     202.6GB  EXT   --
-5 /mnt/mnt   53.7GB  ext4   --              5     167.8GB  ext4  gkrellm6-p5
-6            61.1GB  ext4   --              6      34.9GB  ext4  --
----------------------------------------------------------------------------
-== Initialize: IMAGE sdb partition table to sda - FS types mismatch ==
-1 /boot     (21.5MB used)    : IMAGE     to sda1  FSCK
-2 root      (6.0GB used)     : MKFS SYNC to sda2
-3                            : MKSWAP
-4                            : 
-5 /mnt/mnt  (54.3MB used)    : MKFS SYNC to sda5
-6           (1.9GB used)     : RESIZE(221.2GB) MKFS SYNC to sda6
----------------------------------------------------------------------------
-Run setup script       : no
-Verbose mode           : no
------------------------:
-** WARNING **          : All destination disk sda data will be overwritten!
-                       :   The partition structure will be imaged from sdb.
------------------------:
-
-Initialize and clone to the destination disk sda?  (yes/no): 
-```
-If I do this initialize clone then the next time I clone to the disk
-it will be a sync clone and will only want to sync whatever partitions
-happen to be mounted.  But there is a "-a" option to rpi-clone that
-will make it clone all partitions even if unmounted.
 
 ## Author
 Bill Wilson

@@ -1095,20 +1095,19 @@ Use -U for unattended even if initializing.
 
 	if ((last_part_sectors < 7812))
 	then
-		printf "%-22s : %s\n" "** FATAL **" "destination disk is too small."
+		printf "%-22s : %s\n" "** FATAL **" \
+					"Initialize required - $reason."
+		printf "%-22s : %s\n" "" \
+					"  But destination is too small. To image partition"
 		readable $((start_sector + 7812)) "512" min_size
-		printf "%-22s : %s\n" " " \
-					"  Minimum destination disk size is $min_size"
-		if ((root_part_match && first_part_mismatch > root_part_num))
+		printf "%-22s : %s\n" "" \
+					"  source sizes, minimum destination size is $min_size."
+		if ((n_src_parts > 2))
 		then
 			printf "%-22s : %s\n" " " \
-						"  Try unmounting source partitions or use -m"
-		elif ((n_src_parts > 2))
-		then
+						"  Options: try a two partition clone with -f2, or"
 			printf "%-22s : %s\n" " " \
-						"  You could try a two partition -f2 clone if it"
-			printf "%-22s : %s\n" " " \
-						"  is OK not to clone partitions above 2."
+						"  manually create custom partitions that can work."
 		fi
 		printf "%-23s:\n" "-----------------------"
 		exit 1
