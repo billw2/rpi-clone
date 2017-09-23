@@ -1,6 +1,6 @@
 #!/bin/bash
 
-version=2.0.11
+version=2.0.12
 
 # auto run grub-install if grub detected
 grub_auto=1
@@ -1183,10 +1183,6 @@ Use -U for unattended even if initializing.
 	echo ""
 	sync
 	sleep 1
-	new_id=$(od -A n -t x -N 4 /dev/urandom | tr -d " ")
-	qprintf "x\ni\n0x$new_id\nr\nw\nq\n" | fdisk /dev/$dst_disk > /dev/null
-	sync
-	sleep 1
 	sfd0=$(sfdisk -d /dev/$src_disk)
 	if ((force_2_parts && (n_src_parts > n_image_parts)))
 	then
@@ -1217,13 +1213,23 @@ Use -U for unattended even if initializing.
 			printf "\n====$PGM\n==orig:\n%s\n\n==edited:\n%s\n" \
 					"$sfd0" "$sfd1" >> /tmp/$PGM-fail
 			printf "\n    Resize failed.  See /tmp/$PGM-fail.\n\n"
+
+			# Don't let dst disk keep source disk ID.  Can lead to remounts.
+			new_id=$(od -A n -t x -N 4 /dev/urandom | tr -d " ")
+			qprintf "x\ni\n0x$new_id\nr\nw\nq\n" | fdisk /dev/$dst_disk > /dev/null
 			exit 1
 		fi
 	done
 	printf "\n    Resize success.\n\n"
 	sync
 	sleep 2
+
+	new_id=$(od -A n -t x -N 4 /dev/urandom | tr -d " ")
+	qprintf "x\ni\n0x$new_id\nr\nw\nq\n" | fdisk /dev/$dst_disk > /dev/null
+	sync
+	sleep 2
 	partprobe "/dev/$dst_disk"
+	sleep 2
 
 	for ((p = n_image_parts + 1; p <= n_src_parts; p++))
 	do
@@ -1359,7 +1365,9 @@ then
 	new_id=$(od -A n -t x -N 4 /dev/urandom | tr -d " ")
 	qprintf "x\ni\n0x$new_id\nr\nw\nq\n" | fdisk /dev/$dst_disk | grep changed
 	sync
-	sleep 1
+	sleep 2
+	partprobe "/dev/$dst_disk"
+	sleep 2
 
 	line=$(fdisk -l /dev/$dst_disk | grep "Disk identifier:")
 	dst_disk_ID=${line#*x}
