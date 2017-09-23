@@ -1,6 +1,6 @@
 #!/bin/bash
 
-version=2.0.12
+version=2.0.13
 
 # auto run grub-install if grub detected
 grub_auto=1
@@ -229,7 +229,7 @@ rsync_file_system()
 	src_dir="$1"
 	dst_dir="$2"
 
-	qprintf "  rsync $1 $2 $3 ..."
+	qprintf "  => rsync $1 $2 $3 ..."
 
 	if [ "$3" == "with-root-excludes" ]
 	then
@@ -610,7 +610,7 @@ do
 
 	if [[ "$part_type" == *"ext"* ]]
 	then
-		label=`e2label ${src_device[p]} 2>/dev/null`
+		label=`e2label ${src_device[p]} 2> /dev/null`
 		if [ "$label" != "" ]
 		then
 			src_label[p]="$label"
@@ -957,7 +957,7 @@ do
 		dst_fs_type[p]="swap"
 	elif [[ "$part_type" == *"ext"* ]]
 	then
-		label=`e2label ${dst_device[p]} 2>/dev/null`
+		label=`e2label ${dst_device[p]} 2> /dev/null`
 		if [ "$label" != "" ]
 		then
 			dst_label[p]="$label"
@@ -1176,7 +1176,7 @@ Use -U for unattended even if initializing.
 	image_to_sector=${src_start_sector[$image_to_part]}
 	count=$((image_to_sector / 2 / 1024 + 4))  # in MiB blocks for dd bs=1M
 
-	echo "Imaging past the start of $msg partition $image_to_part."
+	printf "\nImaging past the start of $msg partition $image_to_part.\n"
 	sync
 	echo "  => dd if=/dev/$src_disk of=/dev/$dst_disk bs=1M count=$count ..."
 	dd if=/dev/$src_disk of=/dev/$dst_disk bs=1M count=$count
@@ -1199,7 +1199,7 @@ Use -U for unattended even if initializing.
 		sfd1=$(echo "$sfd1" | sed "\/dev\/$part/s/size=[^,]*,//")
 	fi
 
-	printf "  => Resizing last partition to end of disk ..."
+	printf "  Resizing last partition to end of disk ..."
 	for ((x = 0; x < 3; ++x))
 	do
 		sleep $((x + 1))
@@ -1212,7 +1212,8 @@ Use -U for unattended even if initializing.
 		then
 			printf "\n====$PGM\n==orig:\n%s\n\n==edited:\n%s\n" \
 					"$sfd0" "$sfd1" >> /tmp/$PGM-fail
-			printf "\n    Resize failed.  See /tmp/$PGM-fail.\n\n"
+			printf "\n    Resize failed.  See /tmp/$PGM-fail.\n"
+			printf "    Try running $PGM again.\n\n"
 
 			# Don't let dst disk keep source disk ID.  Can lead to remounts.
 			new_id=$(od -A n -t x -N 4 /dev/urandom | tr -d " ")
@@ -1220,16 +1221,19 @@ Use -U for unattended even if initializing.
 			exit 1
 		fi
 	done
-	printf "\n    Resize success.\n\n"
+	printf "\n    Resize success.\n"
+	printf "  Changing destination Disk ID ..."
 	sync
 	sleep 2
 
 	new_id=$(od -A n -t x -N 4 /dev/urandom | tr -d " ")
 	qprintf "x\ni\n0x$new_id\nr\nw\nq\n" | fdisk /dev/$dst_disk > /dev/null
+	printf "\n  Delaying so partprobe can update /dev entries ..."
 	sync
 	sleep 2
 	partprobe "/dev/$dst_disk"
 	sleep 2
+	echo ""
 
 	for ((p = n_image_parts + 1; p <= n_src_parts; p++))
 	do
@@ -1253,13 +1257,13 @@ Use -U for unattended even if initializing.
 		if [ "${src_mounted_dir[p]}" == "/boot" ] && ((p == 1))
 		then
 			# Avoid "Volume not properly unmounted" warnings.
-			printf "\n  => fsck -p $dst_dev ..."
+			printf "  => fsck -p $dst_dev ..."
 			fsck -p $dst_dev &>> /tmp/$PGM-log
 			echo ""
 		else
 			if [ "$fs_type" == "swap" ]
 			then
-				printf "\n  => mkswap $dst_dev\n"
+				printf "  => mkswap $dst_dev\n"
 				mkswap $dst_dev
 			elif ((p != ext_part_num))
 			then
@@ -1272,8 +1276,9 @@ Use -U for unattended even if initializing.
 					then
 						fs_type="vfat -F 32"
 					fi
-					printf "\n  => mkfs -t $fs_type $dst_dev\n"
-					mkfs -t "$fs_type" "$dst_dev" <<< "yes"
+					printf "  => mkfs -t $fs_type $dst_dev ..."
+					mkfs -t "$fs_type" "$dst_dev" &> /dev/null <<< "yes"
+#					mkfs -t "$fs_type" "$dst_dev" <<< "yes"
 					echo ""
 					if ((p == n_image_parts))
 					then
@@ -1361,7 +1366,7 @@ line=$(fdisk -l /dev/$dst_disk | grep "Disk identifier:")
 dst_disk_ID=${line#*x}
 if [ "$dst_disk_ID" == "$src_disk_ID" ]
 then
-	qecho "=> Destination disk has same Disk ID as source, changing it."
+	qecho "Destination disk has same Disk ID as source, changing it."
 	new_id=$(od -A n -t x -N 4 /dev/urandom | tr -d " ")
 	qprintf "x\ni\n0x$new_id\nr\nw\nq\n" | fdisk /dev/$dst_disk | grep changed
 	sync
@@ -1378,7 +1383,7 @@ then
 fi
 
 sync
-qprintf "\nSyncing file systems (can take a long time):"
+qprintf "\nSyncing file systems (can take a long time)\n"
 
 sync_msg_done=0
 for ((p = 1; p <= n_src_parts; p++))
@@ -1391,7 +1396,7 @@ do
 	then
 		if ((!sync_msg_done))
 		then
-			qprintf "\nSyncing unmounted partitions\n"
+			qprintf "Syncing unmounted partitions:\n"
 		fi
 		sync_msg_done=1
 		mount_partition ${src_device[p]} $clone_src ""
@@ -1403,7 +1408,7 @@ do
 	done
 
 
-qprintf "\n=> Syncing mounted partitions\n"
+qprintf "\nSyncing mounted partitions:\n"
 mount_partition $dst_root_dev $clone ""
 unmount_list="$clone"
 
@@ -1438,22 +1443,22 @@ if [ -f $cmdline_txt ]
 then
 	if ((leave_sd_usb_boot && SD_slot_dst))
 	then
-		qecho "=> Leaving SD to USB boot alone."
+		qecho "Leaving SD to USB boot alone."
 		cp $cmdline_txt ${clone}/boot/cmdline.boot
 		cmdline_txt=${clone}/boot/cmdline.boot
 	fi
 	if grep -q $src_disk_ID $cmdline_txt
 	then
-		qecho "=> Editing $cmdline_txt PARTUUID to use $dst_disk_ID"
+		qecho "Editing $cmdline_txt PARTUUID to use $dst_disk_ID"
 		sed -i "s/${src_disk_ID}/${dst_disk_ID}/" "$cmdline_txt"
 	elif [ "$edit_fstab_name" != "" ] && grep -q ${src_part_base} $cmdline_txt
 	then
-		qecho "=> Editing $cmdline_txt references from $src_part_base to $edit_fstab_name"
+		qecho "Editing $cmdline_txt references from $src_part_base to $edit_fstab_name"
 		sed -i "s/${src_part_base}/$edit_fstab_name/" "$cmdline_txt"
 	fi
 	if ((leave_sd_usb_boot && SD_slot_boot))
 	then
-		qecho "=> Copying USB cmdline.txt to SD card to set up USB boot."
+		qecho "Copying USB cmdline.txt to SD card to set up USB boot."
 		cp /boot/cmdline.txt /boot/cmdline.boot
 		cp $cmdline_txt /boot/cmdline.txt
 	fi
@@ -1461,11 +1466,11 @@ fi
 
 if grep -q $src_disk_ID $fstab
 then
-	qecho "=> Editing $fstab PARTUUID to use $dst_disk_ID"
+	qecho "Editing $fstab PARTUUID to use $dst_disk_ID"
 	sed -i "s/${src_disk_ID}/${dst_disk_ID}/g" "$fstab"
 elif [ "$edit_fstab_name" != "" ] && grep -q ${src_part_base} $fstab
 then
-	qecho "=> Editing $fstab references from $src_part_base to $edit_fstab_name"
+	qecho "Editing $fstab references from $src_part_base to $edit_fstab_name"
 	sed -i "s/${src_part_base}/${edit_fstab_name}/" "$fstab"
 fi
 
@@ -1487,7 +1492,7 @@ fi
 
 if [ "$setup_args" != "" ]
 then
-	qprintf "\n==> Running setup script: $setup_command $setup_args\n"
+	qprintf "\nRunning setup script: $setup_command $setup_args\n"
 	$setup_command $setup_args
 fi
 
@@ -1513,7 +1518,7 @@ then
 	echo -n $"
 Cloned partitions are mounted on $clone for inspection or customizing. 
 
-Hit Enter when ready to unmount the /dev/$dst_disk partitions..."
+Hit Enter when ready to unmount the /dev/$dst_disk partitions ..."
 
 	read resp
 fi
