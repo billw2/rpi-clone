@@ -1,6 +1,6 @@
 #!/bin/bash
 
-version=2.0.13
+version=2.0.14
 
 # auto run grub-install if grub detected
 grub_auto=1
@@ -200,7 +200,7 @@ unmount_list()
 	fi
 	for dir in $1
 	do
-		qecho "unmounting: $dir"
+		qecho "  unmounting $dir"
 		if ! umount $dir
 		then
 			qecho "  Failed to unmount: $dir"
@@ -663,7 +663,12 @@ do
 				echo "Cannot find script $setup_command for setup arg \"$1\"."
 				usage_error=1
 			fi
-			setup_args="$setup_args $1"
+			if [ "$setup_args" == "" ]
+			then
+				setup_args="$1"
+			else
+				setup_args="$setup_args $1"
+			fi
 			;;
 		-e|--edit-fstab)
 			shift
@@ -1176,10 +1181,17 @@ Use -U for unattended even if initializing.
 	image_to_sector=${src_start_sector[$image_to_part]}
 	count=$((image_to_sector / 2 / 1024 + 4))  # in MiB blocks for dd bs=1M
 
-	printf "\nImaging past the start of $msg partition $image_to_part.\n"
+	printf "\nInitializing\n"
+	printf "  Imaging past the start of $msg partition $image_to_part.\n"
 	sync
-	echo "  => dd if=/dev/$src_disk of=/dev/$dst_disk bs=1M count=$count ..."
-	dd if=/dev/$src_disk of=/dev/$dst_disk bs=1M count=$count
+	printf "  => dd if=/dev/$src_disk of=/dev/$dst_disk bs=1M count=$count ..."
+	dd if=/dev/$src_disk of=/dev/$dst_disk bs=1M count=$count &> /tmp/$PGM-output
+	if [ "$?" != 0 ]
+	then
+		printf "\n  dd failed.  See /tmp/$PGM-output.\n"
+		printf "  Try running $PGM again.\n\n"
+		exit 1
+	fi
 	echo ""
 	sync
 	sleep 1
@@ -1203,7 +1215,7 @@ Use -U for unattended even if initializing.
 	for ((x = 0; x < 3; ++x))
 	do
 		sleep $((x + 1))
-		sfdisk --force /dev/$dst_disk &> /tmp/$PGM-fail <<< "$sfd1"
+		sfdisk --force /dev/$dst_disk &> /tmp/$PGM-output <<< "$sfd1"
 		if [ "$?" == 0 ]
 		then
 			break
@@ -1211,8 +1223,8 @@ Use -U for unattended even if initializing.
 		if ((x == 2))
 		then
 			printf "\n====$PGM\n==orig:\n%s\n\n==edited:\n%s\n" \
-					"$sfd0" "$sfd1" >> /tmp/$PGM-fail
-			printf "\n    Resize failed.  See /tmp/$PGM-fail.\n"
+					"$sfd0" "$sfd1" >> /tmp/$PGM-output
+			printf "\n    Resize failed.  See /tmp/$PGM-output.\n"
 			printf "    Try running $PGM again.\n\n"
 
 			# Don't let dst disk keep source disk ID.  Can lead to remounts.
@@ -1432,7 +1444,7 @@ do
 		unmount_list="$dst_dir $unmount_list"
 	fi
 done
-
+echo ""
 
 # Fix PARTUUID or device name references in cmdline.txt and fstab
 #
