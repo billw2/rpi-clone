@@ -85,18 +85,27 @@ add them to the rpi-clone-setup script.
 	$ sudo cp rpi-clone-setup /usr/local/sbin/sys-clone-setup
 ```
   
-If your other OS is a SD card booted system, it will possibly work.
+If your other OS is a SD card booted system, it will possibly work because
+an initialize clone images a first /boot partition.
 However it currently does not work for emmc booted devices.
 
-rpi-clone does not directly support usage on a desktop OS.
-However, I do use it with my Debian desktop because my setup script
-handles my /etc/grub.d/ custom menus and fstab, and the script runs
-grub_install.  rpi-clone does handle editing of
-PARTUUID values in /etc/fstab, but a customized setup script for
-a desktop might need to handle file system UUID values or device
-name editing in /etc/fstab and the bootloader config.  If these possible
-issues are handled in a setup script, then rpi-clone should work fine
-creating clone backup disks for a desktop.
+rpi-clone does not directly support usage on a desktop OS because there
+are different possible bootloaders and while device names or PARTUUID
+are handled for /etc/fstab, UUID is not handled.
+However, it works for me and I use rpi-clone renamed as sys-clone on
+my Debian desktop because I use PARTUUID in my fstab and I use the grub
+bootloader (rpi-clone will run grub-install if it detects it installed
+and there is a /boot/grub directory).  Using PARTUUID makes fstab
+editing simple because only a single number identifies the entire disk.
+I do have possible ambiguity in my grub menu setup because I only use
+device names in my menu entries while the fstab uses PARTUUID.
+But what actually happens is that with a root=/dev/sda2 in my grub menu
+default boot line, a USB disk will boot as sda if I have the disk plugged
+in when booting, which is what I want.  Device names in fstab are a bad
+idea when doing this because the USB disk root partition could boot and then
+mount my internal drive partitions instead of the USB partitions.  But
+I use PARTUUID so there will not be cross mounting.  And I have a couple
+of extra grub menu entries with other root variations just in case.
 
 ## Usage
 To get a usage screen showing available options,
@@ -212,6 +221,8 @@ If it is not, then the clone will have to be to a two partition -f2
 clone or a clone to a manually partitioned destination.  So, for a
 multi partition disk, select partition number and sizes with a eye
 towards how you will be cloning back to smaller disks.
+11. Desktop demo
+
 
 #### 1) First clone to a new SD card in USB card reader
 In this example a new SD card in a USB card reader has been plugged in
@@ -620,6 +631,74 @@ Verbose mode           : no
 
 Ok to proceed with the clone?  (yes/no): 
 ```
+
+#### 11) Clones from my Debian desktop
+Here are a couple of runs to show how rpi-clone looks handling more complex
+partitioning on my desktop.  I have three primary partitions and extra
+extended partitions.  I don't have a separate /boot partition but have
+a small first partition in case I want to change that.
+It probably won't work if there is a primary partition
+after an extended partition.
+```
+~$ sudo sys-clone sdb
+/usr/sbin/grub-install
+
+Booted disk: sda 275.1GB                   Destination disk: sdb 320.1GB
+---------------------------------------------------------------------------
+Part         Size    FS    Label           Part   Size    FS  Label
+1             1.0GB  ext4  SSD-275-G6-p1   1     320.1GB  --  --
+2 root       52.4GB  ext4  SSD-275-G6-p2                        
+3            12.6GB  swap  --                                   
+4           209.0GB  EXT   --                                   
+5 /home      62.9GB  ext4  SSD-275-G6-p5                        
+6 /mnt/sda  146.1GB  ext4  SSD-275-G6-p6                        
+---------------------------------------------------------------------------
+== Initialize: IMAGE sda partition table to sdb - FS types mismatch ==
+1                                    : IMAGE     to sdb1
+2 root                (15.3GB used)  : MKFS SYNC to sdb2
+3                                    : MKSWAP
+5 /home               (12.9GB used)  : MKFS SYNC to sdb5
+6 /mnt/sda            (73.1GB used)  : RESIZE(191.1GB) MKFS SYNC to sdb6
+---------------------------------------------------------------------------
+Run setup script       : no
+Run grub               : grub-install --root-directory=/mnt/clone /dev/sdb
+Verbose mode           : no
+-----------------------:
+** WARNING **          : All destination disk sdb data will be overwritten!
+                       :   The partition structure will be imaged from sda.
+-----------------------:
+
+Initialize and clone to the destination disk sdb?  (yes/no): 
+```
+And a subsequent sync to the same disk after I have manually labeled all
+the partitions:
+```
+~$ sudo sys-clone sdb
+/usr/sbin/grub-install
+
+Booted disk: sda 275.1GB                   Destination disk: sdb 320.1GB
+---------------------------------------------------------------------------
+Part         Size    FS    Label           Part   Size    FS    Label
+1             1.0GB  ext4  SSD-275-G6-p1   1       1.0GB  ext4  Maxone-320A-p1
+2 root       52.4GB  ext4  SSD-275-G6-p2   2      52.4GB  ext4  Maxone-320A-p2
+3            12.6GB  swap  --              3      12.6GB  swap  --
+4           209.0GB  EXT   --              4     254.0GB  EXT   --
+5 /home      62.9GB  ext4  SSD-275-G6-p5   5      62.9GB  ext4  Maxone-320A-p5
+6 /mnt/sda  146.1GB  ext4  SSD-275-G6-p6   6     191.1GB  ext4  Maxone-320A-p6
+---------------------------------------------------------------------------
+== SYNC sda file systems to sdb ==
+/                     (15.3GB used)  : SYNC to sdb2 (52.4GB size)
+/home                 (12.9GB used)  : SYNC to sdb5 (62.9GB size)
+/mnt/sda              (73.1GB used)  : SYNC to sdb6 (191.1GB size)
+---------------------------------------------------------------------------
+Run setup script       : no
+Run grub               : grub-install --root-directory=/mnt/clone /dev/sdb
+Verbose mode           : no
+-----------------------:
+
+Ok to proceed with the clone?  (yes/no): 
+```
+
 
 ## Author
 Bill Wilson

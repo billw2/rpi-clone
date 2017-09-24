@@ -1,6 +1,6 @@
 #!/bin/bash
 
-version=2.0.15
+version=2.0.16
 
 # auto run grub-install if grub detected
 grub_auto=1
@@ -432,6 +432,11 @@ print_options()
 		printf "%-22s : %s\n" "Run setup script" "$setup_command $setup_args"
 	else
 		printf "%-22s : no\n" "Run setup script"
+	fi
+	if ((have_grub))
+	then
+		printf "%-22s : %s\n" "Run grub" \
+			"grub-install --root-directory=$clone /dev/$dst_disk"
 	fi
 	printf "%-22s : %s\n" "Verbose mode" "$verbose"
 	printf "%-23s:\n" "-----------------------"
@@ -1070,6 +1075,13 @@ then
 	exclude_swapfile="--exclude $swapfile"
 fi
 
+if ((grub_auto)) && [ -d /boot/grub ] && command -v grub-install
+then
+	have_grub=1
+else
+	have_grub=0
+fi
+
 print_partitions
 
 if ((initialize))
@@ -1446,7 +1458,7 @@ do
 		unmount_list="$dst_dir $unmount_list"
 	fi
 done
-echo ""
+qecho ""
 
 # Fix PARTUUID or device name references in cmdline.txt and fstab
 #
@@ -1498,10 +1510,15 @@ then
 	dst_root_vol_name="no label"
 fi
 
-if [ -d /boot/grub ] && ((grub_auto))
+if ((have_grub))
 then
-	echo "grub-install --root-directory=$clone /dev/$dst_disk"
-	grub-install --root-directory=$clone /dev/$dst_disk
+	qecho "grub-install --root-directory=$clone /dev/$dst_disk"
+	if ((quiet))
+	then
+		grub-install --root-directory=$clone /dev/$dst_disk &> /dev/null
+	else
+		grub-install --root-directory=$clone /dev/$dst_disk
+	fi
 fi
 
 if [ "$setup_args" != "" ]
