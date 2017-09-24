@@ -1,6 +1,6 @@
 #!/bin/bash
 
-version=2.0.14
+version=2.0.15
 
 # auto run grub-install if grub detected
 grub_auto=1
@@ -1025,7 +1025,7 @@ then
 	exit 1
 fi
 
-for ((p = 1; p <= n_dst_parts; p++))
+for ((p = n_dst_parts; p >= 1; --p))
 do
 	if ((!dst_exists[p]))
 	then
@@ -1034,8 +1034,19 @@ do
 	dir=$(echo "$dst_mount_table" \
 				| grep -e "^${dst_device[p]}" | cut -d " " -f 2)
 	unmount_or_abort "$dir" \
-"Destination disk partition ${dst_device[p]} is mounted on ${dst_mounted_dir[p]}."
+"Destination disk partition ${dst_device[p]} is mounted on $dir."
 done
+
+mounted_dev=$(findmnt $clone -o source -n)
+unmount_or_abort "$mounted_dev" \
+			"Directory $clone is already mounted with $mounted_dev."
+
+mounted_dev=$(findmnt $clone_src -o source -n)
+unmount_or_abort "$mounted_dev" \
+			"Directory $clone_src is already mounted with $mounted_dev."
+
+mounted_dev=$(findmnt /mnt -o source -n)
+unmount_or_abort "$mounted_dev" "$mounted_dev is currently mounted on /mnt."
 
 
 if [ ! -d $clone ]
@@ -1058,19 +1069,6 @@ then
 	fi
 	exclude_swapfile="--exclude $swapfile"
 fi
-
-# TODO: exclude fuse mounts (readlink_stat errors): process findmnt -D | fuse
-
-mounted_dev=$(findmnt $clone -o source -n)
-unmount_or_abort "$mounted_dev" \
-			"Directory $clone is already mounted with $mounted_dev."
-
-mounted_dev=$(findmnt $clone_src -o source -n)
-unmount_or_abort "$mounted_dev" \
-			"Directory $clone_src is already mounted with $mounted_dev."
-
-mounted_dev=$(findmnt /mnt -o source -n)
-unmount_or_abort "$mounted_dev" "$mounted_dev is currently mounted on /mnt."
 
 print_partitions
 
@@ -1276,7 +1274,7 @@ Use -U for unattended even if initializing.
 			if [ "$fs_type" == "swap" ]
 			then
 				printf "  => mkswap $dst_dev\n"
-				mkswap $dst_dev
+				mkswap $dst_dev &>> /tmp/$PGM-log
 			elif ((p != ext_part_num))
 			then
 				if [ "${src_mounted_dir[p]}" != "" ] || ((p == n_image_parts))
@@ -1289,7 +1287,7 @@ Use -U for unattended even if initializing.
 						fs_type="vfat -F 32"
 					fi
 					printf "  => mkfs -t $fs_type $dst_dev ..."
-					mkfs -t "$fs_type" "$dst_dev" &> /dev/null <<< "yes"
+					mkfs -t "$fs_type" "$dst_dev" &>> /tmp/$PGM-output <<< "yes"
 #					mkfs -t "$fs_type" "$dst_dev" <<< "yes"
 					echo ""
 					if ((p == n_image_parts))
@@ -1302,9 +1300,14 @@ Use -U for unattended even if initializing.
 						fi
 					fi					
 				else
-					printf "\n  => dd if=${src_device[$p]} of=$dst_dev bs=1M ...\n"
-					dd if=${src_device[$p]} of=$dst_dev bs=1M
-					echo ""
+					printf "  => dd if=${src_device[$p]} of=$dst_dev bs=1M ..."
+					dd if=${src_device[$p]} of=$dst_dev bs=1M &>> /tmp/$PGM-output
+					if [ "$?" != 0 ]
+					then
+						printf "\n  dd failed.  See /tmp/$PGM-output.\n"
+					else
+						echo ""
+					fi
 				fi
 			fi
 		fi
@@ -1417,10 +1420,9 @@ do
 		rsync_file_system "${clone_src}/" "${clone}" ""
 		unmount_list "$unmount_list"
 	fi
-	done
+done
 
-
-qprintf "\nSyncing mounted partitions:\n"
+qprintf "Syncing mounted partitions:\n"
 mount_partition $dst_root_dev $clone ""
 unmount_list="$clone"
 
