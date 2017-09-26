@@ -1,6 +1,6 @@
 #!/bin/bash
 
-version=2.0.16
+version=2.0.17
 
 # auto run grub-install if grub detected
 grub_auto=1
@@ -525,7 +525,7 @@ src_disk_size=$(echo "$src_partition_table" \
 line=$(fdisk -l /dev/$src_disk | grep "Disk identifier:")
 src_disk_ID=${line#*x}
 
-src_mount_table=$(findmnt -o source,target -n -l -b \
+src_mount_table=$(findmnt -o source,target -n -l \
 				| grep -e "^/dev/$src_disk" -e "^$src_root_dev" | tr -s " ")
 n_mounts=$(echo "$src_mount_table" | wc -l)
 
@@ -923,7 +923,7 @@ dst_disk_size=$(echo "$dst_partition_table" \
 				| grep "^/dev/$dst_disk" | cut -d ":" -f 2 | tr -d 's')
 dst_root_dev=/dev/${dst_part_base}${root_part_num}
 
-dst_mount_table=$(findmnt -o source,target -n -l -b \
+dst_mount_table=$(findmnt -o source,target -n -l \
 				| grep "^/dev/$dst_disk" | tr -s " ")
 
 dst_fdisk_table=$(fdisk -l /dev/$dst_disk | grep "^/dev/")
