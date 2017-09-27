@@ -114,44 +114,47 @@ run rpi-clone without any arguments:
 pi@rpi0: $ sudo rpi-clone
 No destination disk given.
 
-usage: rpi-clone sdN {-v|--verbose} {-f|--force-initialize} {-f2}
+usage: sys-clone sdN {-v|--verbose} {-f|--force-initialize} {-f2}
          {-u|--unattended} {-U|--Unattended} {-q|--quiet}
-         {-s|--setup} {-e|--edit-fstab sdX }
-         {-m|--mountdir dir } {-l|--leave-sd-usb-boot}
+         {-s|--setup host} {-e|--edit-fstab sdX } {-m|--mountdir dir }
+         {-L|--label-partitions label} {-l|--leave-sd-usb-boot}
          {-a|--all-sync} {-F|--Force-sync} {-x} {-V|--version}
          {--convert-fstab-to-partuuid}
 
-    -v      - verbose rsync, list all files as they are copied.
-    -f      - force initialize the destination disk by imaging the booted disk
-                partition structure.  File systems are then synced or imaged.
-    -f2     - force initialize only the first 2 partitions to the destination.
-                So a multi partition USB boot can initialize clone back to
-                a 2 partition SD card.
-    -u      - unattended clone if not initializing.  No confirmations asked,
-                but abort if disk needs initializing or on error.
+    -v	    - verbose rsync, list all files as they are copied.
+    -f	    - force initialize the destination disk by imaging the booted disk
+		partition structure.  File systems are then synced or imaged.
+    -f2	    - force initialize only the first 2 partitions to the destination.
+		So a multi partition USB boot can initialize clone back to
+		a 2 partition SD card.
+    -u	    - unattended clone if not initializing.  No confirmations asked,
+		but abort if disk needs initializing or on error.
     -U      - unattended even if initializing. No confirmations asked,
                 but abort only on errors.
     -q      - quiet mode, no output unless errors or initializing. Implies -u.
     -s host - add 'host' to args passed to script rpi-clone-setup and run it
                 after cloning but before unmounting partitions. For setting
-                clone disk hostname, but args can be what the script expects.
-                You can give multiple "-s arg" options.
+		clone disk hostname, but args can be what the script expects.
+                You can give multiple -s arg options.
     -e sdX  - edit destination fstab to change booted device names to new
-                device 'sdX'.  This is Only for fstabs that use device names.
+      	        device 'sdX'.  This is Only for fstabs that use device names.
                 Used for setting up a USB bootable disk.
     -m dir  - Add dir to a custom list of mounted directories to sync.  Then
                 the custom list will be synced instead of the default of all
                 mounted directories.  The root directory is always synced.
                 Not for when initializing.
+    -L lbl  - label for ext type partitions.  If ends with '#', replace with
+                partition number and label all ext partitions. Otherwise,
+                apply label to root partition only.
     -l      - leave SD card to USB boot alone when cloning to SD card mmcblk0
                 from a USB boot.  This preserves a SD card to USB boot setup
-                by leaving the SD card cmdline.txt using the USB root.  When
+                by leaving the SD card cmdline.txt using the USB root.	When
                 cloning to USB from SD card this option sets up the SD card
                 cmdline.txt to boot to the USB disk.
     -a      - Sync all partitions if types compatible, not just mounted ones.
     -F      - force file system sync even if errors.
                 If source used > destination space error, do the sync anyway.
-                If a source partition mount error, skip it and do other syncs.
+		If a source partition mount error, skip it and do other syncs.
     -x      - use set -x for very verbose bash shell script debugging
     -V      - print rpi-clone version.
 ```

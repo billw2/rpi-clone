@@ -1,6 +1,6 @@
 #!/bin/bash
 
-version=2.0.17
+version=2.0.18
 
 # auto run grub-install if grub detected
 grub_auto=1
@@ -70,8 +70,8 @@ usage()
 	echo $"
 usage: $PGM sdN {-v|--verbose} {-f|--force-initialize} {-f2}
          {-u|--unattended} {-U|--Unattended} {-q|--quiet}
-         {-s|--setup} {-e|--edit-fstab sdX }
-         {-m|--mountdir dir } {-l|--leave-sd-usb-boot}
+         {-s|--setup host} {-e|--edit-fstab sdX } {-m|--mountdir dir }
+         {-L|--label-partitions label} {-l|--leave-sd-usb-boot}
          {-a|--all-sync} {-F|--Force-sync} {-x} {-V|--version}
          {--convert-fstab-to-partuuid}
 
@@ -97,6 +97,9 @@ usage: $PGM sdN {-v|--verbose} {-f|--force-initialize} {-f2}
                 the custom list will be synced instead of the default of all
                 mounted directories.  The root directory is always synced.
                 Not for when initializing.
+    -L lbl  - label for ext type partitions.  If ends with '#', replace with
+                partition number and label all ext partitions. Otherwise,
+                apply label to root partition only.
     -l      - leave SD card to USB boot alone when cloning to SD card mmcblk0
                 from a USB boot.  This preserves a SD card to USB boot setup
                 by leaving the SD card cmdline.txt using the USB root.	When
@@ -414,6 +417,18 @@ print_options()
 		printf "%-22s : %s\n" "-e clone fstab edit" \
 				"edit $src_part_base device entries to $edit_fstab_name"
 	fi
+	if [ "$ext_label" != "" ]
+	then
+		rep="${ext_label: -1}"
+		if [ "$rep" == "#" ]
+		then
+			msg="all ext partition types"
+		else
+			msg="root partition only"
+		fi
+		printf "%-22s : %s\n" "-L $ext_label" \
+				"volume label for $msg."
+	fi
 	if ((leave_sd_usb_boot))
 	then
 		if ((SD_slot_dst))
@@ -440,6 +455,28 @@ print_options()
 	fi
 	printf "%-22s : %s\n" "Verbose mode" "$verbose"
 	printf "%-23s:\n" "-----------------------"
+	}
+
+ext_label()
+	{
+	pnum=$1
+	fs_type=$2
+	flag=$3
+	label_arg=""
+
+	if [ "$ext_label" != "" ] && [[ "$fs_type" == *"ext"* ]]
+	then
+		rep="${ext_label: -1}"
+		if [ "$rep" == "#" ]
+		then
+			label_arg=${ext_label:: -1}
+			label_arg="$flag $label_arg$pnum"
+		elif ((pnum == root_part_num))
+		then
+			label_arg="$flag $ext_label"
+		fi
+	fi
+	printf -v "${4}" "%s" "$label_arg"
 	}
 
 get_src_disk()
@@ -628,6 +665,7 @@ done
 #
 setup_args=""
 edit_fstab_name=""
+ext_label=""
 verbose="no"
 
 force_initialize=0
@@ -717,6 +755,10 @@ do
 				usage_error=1
 			fi
 			custom_sync=1
+			;;
+		-L|--label_partitions)
+			shift
+			ext_label=$1
 			;;
 		-l|--leave-sd-usb-boot)
 			leave_sd_usb_boot=1
@@ -1170,11 +1212,10 @@ Use -U for unattended even if initializing.
 	fi
 	confirm "Initialize and clone to the destination disk ${dst_disk}?" "abort"
 
-	root_label=""
-	if ((!Unattended))
+	if ((!Unattended)) && [ "$ext_label" == "" ]
 	then
-		printf "Optional destination rootfs $dst_root_dev label (16 chars max): "
-		read root_label
+		printf "Optional destination  ext type file system label (16 chars max): "
+		read ext_label
 	fi
 
 	start_time=`date '+%H:%M:%S'`
@@ -1282,6 +1323,11 @@ Use -U for unattended even if initializing.
 			printf "  => fsck -p $dst_dev ..."
 			fsck -p $dst_dev &>> /tmp/$PGM-log
 			echo ""
+			ext_label $p $fs_type "" label
+			if [ "$label" != "" ]
+			then
+				e2label $dst_dev $label
+			fi
 		else
 			if [ "$fs_type" == "swap" ]
 			then
@@ -1298,9 +1344,10 @@ Use -U for unattended even if initializing.
 					then
 						fs_type="vfat -F 32"
 					fi
-					printf "  => mkfs -t $fs_type $dst_dev ..."
-					mkfs -t "$fs_type" "$dst_dev" &>> /tmp/$PGM-output <<< "yes"
-#					mkfs -t "$fs_type" "$dst_dev" <<< "yes"
+					ext_label $p $fs_type "-L" label
+					printf "  => mkfs -t $fs_type $label $dst_dev ..."
+					yes | mkfs -t "$fs_type" $label "$dst_dev" &>> /tmp/$PGM-output
+#					mkfs -t "$fs_type" "$dst_dev" &>> /tmp/$PGM-output <<< "yes"
 					echo ""
 					if ((p == n_image_parts))
 					then
@@ -1320,15 +1367,16 @@ Use -U for unattended even if initializing.
 					else
 						echo ""
 					fi
+					ext_label $p $fs_type "" label
+					if [ "$label" != "" ]
+					then
+						echo "     e2label $dst_dev $label"
+						e2label $dst_dev $label
+					fi
 				fi
 			fi
 		fi
 	done
-
-	if [ "$root_label" != "" ]
-	then
-		e2label $dst_root_dev "$root_label"
-	fi
 else
 	qecho "== SYNC $src_disk file systems to $dst_disk =="
 	print_sync_actions
