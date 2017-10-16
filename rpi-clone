@@ -1,6 +1,6 @@
 #!/bin/bash
 
-version=2.0.18
+version=2.0.19
 
 # auto run grub-install if grub detected
 grub_auto=1
@@ -8,7 +8,7 @@ grub_auto=1
 PGM=`basename $0`
 setup_command="$PGM-setup"
 
-rsync_options="--force -rltWDEgoptx"
+rsync_options="--force -rltWDEHXAgoptx"
 
 if [ `id -u` != 0 ]
 then
@@ -1377,6 +1377,7 @@ Use -U for unattended even if initializing.
 			fi
 		fi
 	done
+	ext_label=""
 else
 	qecho "== SYNC $src_disk file systems to $dst_disk =="
 	print_sync_actions
@@ -1474,8 +1475,17 @@ do
 			qprintf "Syncing unmounted partitions:\n"
 		fi
 		sync_msg_done=1
+		dst_dev=/dev/${dst_part_base}${p}
+		fs_type=${src_fs_type[$p]}
+		ext_label $p $fs_type "" label
+		if [ "$label" != "" ]
+		then
+			qecho "     e2label $dst_dev $label"
+			e2label $dst_dev $label
+		fi
+
 		mount_partition ${src_device[p]} $clone_src ""
-		mount_partition /dev/${dst_part_base}$p $clone "$clone_src"
+		mount_partition $dst_dev $clone "$clone_src"
 		unmount_list="$clone_src $clone"
 		rsync_file_system "${clone_src}/" "${clone}" ""
 		unmount_list "$unmount_list"
@@ -1483,6 +1493,15 @@ do
 done
 
 qprintf "Syncing mounted partitions:\n"
+
+fs_type=${src_fs_type[$root_part_num]}
+ext_label $root_part_num $fs_type "" label
+if [ "$label" != "" ]
+then
+	qecho "     e2label $dst_root_dev $label"
+	e2label $dst_root_dev $label
+fi
+
 mount_partition $dst_root_dev $clone ""
 unmount_list="$clone"
 
@@ -1501,7 +1520,17 @@ do
 		then
 			mkdir -p $dst_dir
 		fi
-		mount_partition /dev/${dst_part_base}$p "$dst_dir" "$unmount_list"
+
+		dst_dev=/dev/${dst_part_base}${p}
+		fs_type=${src_fs_type[$p]}
+		ext_label $p $fs_type "" label
+		if [ "$label" != "" ]
+		then
+			qecho "     e2label $dst_dev $label"
+			e2label $dst_dev $label
+		fi
+
+		mount_partition "$dst_dev" "$dst_dir" "$unmount_list"
 		rsync_file_system "${src_mounted_dir[p]}/" "${dst_dir}" ""
 		unmount_list="$dst_dir $unmount_list"
 	fi
