@@ -1,6 +1,6 @@
 #!/bin/bash
 
-version=2.0.19
+version=2.0.20
 
 # auto run grub-install if grub detected
 grub_auto=1
@@ -961,6 +961,11 @@ fi
 
 dst_partition_table=$(parted -m "/dev/$dst_disk" unit s print | tr -d ';')
 n_dst_parts=$(echo "$dst_partition_table" | tail -n 1 | cut -d ":" -f 1)
+if [ "$n_dst_parts" == "/dev/$dst_disk" ]
+then
+	n_dst_parts=0
+fi
+
 dst_disk_size=$(echo "$dst_partition_table" \
 				| grep "^/dev/$dst_disk" | cut -d ":" -f 2 | tr -d 's')
 dst_root_dev=/dev/${dst_part_base}${root_part_num}
