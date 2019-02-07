@@ -1,5 +1,13 @@
 #!/bin/bash
 
+# rpi-clone is Copyright (c) 2018-2019 Bill Wilson
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted under the conditions of the BSD LICENSE file at
+# the rpi-clone github source repository:
+#    https://github.com/billw2/rpi-clone
+
+
 version=2.0.20
 
 # auto run grub-install if grub detected
