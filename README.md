@@ -1,5 +1,5 @@
 ## rpi-clone
-Latest version: 2.0.21
+Latest version: 2.0.22
 
 Version 2 is a complete rewrite with improved capability over
 the original.  See the examples below.
@@ -111,6 +111,7 @@ usage: sys-clone sdN {-v|--verbose} {-f|--force-initialize} {-f2}
          {-L|--label-partitions label} {-l|--leave-sd-usb-boot}
          {-a|--all-sync} {-F|--Force-sync} {-x} {-V|--version}
          {--convert-fstab-to-partuuid}
+         {--exclude=PATTERN} {--exclude-from=FILE}
 
     -v	    - verbose rsync, list all files as they are copied.
     -f	    - force initialize the destination disk by imaging the booted disk
@@ -137,8 +138,8 @@ usage: sys-clone sdN {-v|--verbose} {-f|--force-initialize} {-f2}
                 the custom list will be synced instead of the default of all
                 mounted directories.  The root directory is always synced.
                 Not for when initializing.
-    -L lbl  - label for ext type partitions.  If 'lbl' ends with #, replace
-				the # with a partition number and label all ext partitions.
+    -L lbl  - label for ext type partitions.  If 'lbl' ends with '#', replace
+				the '#' with a partition number and label all ext partitions.
                 Otherwise apply label to root partition only.
     -l      - leave SD card to USB boot alone when cloning to SD card mmcblk0
                 from a USB boot.  This preserves a SD card to USB boot setup

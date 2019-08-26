@@ -8,7 +8,7 @@
 #    https://github.com/billw2/rpi-clone
 
 
-version=2.0.21
+version=2.0.22
 
 # auto run grub-install if grub detected
 grub_auto=1
@@ -583,8 +583,8 @@ get_src_disk()
 
 # ==== source (booted) disk info and default mount list
 #
-src_boot_dev=`findmnt /boot -o source -n`
-src_root_dev=`findmnt / -o source -n`
+src_boot_dev=`findmnt /boot -o source -n | grep "/dev/"`
+src_root_dev=`findmnt / -o source -n | grep "/dev/"`
 SD_slot_boot=0
 SD_slot_dst=0
 src_part_base=""
