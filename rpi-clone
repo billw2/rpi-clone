@@ -98,6 +98,7 @@ usage: $PGM sdN {-v|--verbose} {-f|--force-initialize} {-f2}
          {-L|--label-partitions label} {-l|--leave-sd-usb-boot}
          {-a|--all-sync} {-F|--Force-sync} {-x} {-V|--version}
          {--convert-fstab-to-partuuid}
+         {--exclude=PATTERN} {--exclude-from=FILE}
 
     -v	    - verbose rsync, list all files as they are copied.
     -f	    - force initialize the destination disk by imaging the booted disk
@@ -290,6 +291,7 @@ rsync_file_system()
 	if [ "$3" == "with-root-excludes" ]
 	then
 		rsync $rsync_options --delete \
+			$exclude_useropt \
 			$exclude_swapfile \
 			--exclude '.gvfs' \
 			--exclude '/dev/*' \
@@ -303,6 +305,7 @@ rsync_file_system()
 		$dst_dir
 	else
 		rsync $rsync_options --delete \
+			$exclude_useropt \
 			--exclude '.gvfs' \
 			--exclude 'lost\+found/*' \
 		$src_dir \
@@ -782,6 +785,9 @@ do
 			unattended=1
 			quiet=1
 			rsync_options=${rsync_options}q
+			;;
+		--exclude=*|--exclude-from=*)
+			exclude_useropt="${exclude_useropt} $1"
 			;;
 		-s|--setup)
 			shift
