@@ -10,6 +10,9 @@
 
 version=2.0.22
 
+# setup trusted paths for dependancies (like rsync, grub, fdisk, etc)
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
 # auto run grub-install if grub detected
 grub_auto=1
 
