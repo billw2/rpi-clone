@@ -739,13 +739,10 @@ do
 		src_name[p]="${src_mounted_dir[p]}"
 	fi
 
-	if [[ "$part_type" == *"ext"* ]]
+	label=`lsblk --raw --output label --noheadings "${src_device[p]}"`
+	if [ "$label" != "" ]
 	then
-		label=`e2label ${src_device[p]} 2> /dev/null`
-		if [ "$label" != "" ]
-		then
-			src_label[p]="$label"
-		fi
+		src_label[p]="$label"
 	fi
 done
 
@@ -1139,16 +1136,15 @@ do
 	if [[ "$part_type" == *"linux-swap"* ]]
 	then
 		dst_fs_type[p]="swap"
-	elif [[ "$part_type" == *"ext"* ]]
+	elif ((p == ext_num))
 	then
-		label=`e2label ${dst_device[p]} 2> /dev/null`
+		dst_fs_type[p]="EXT"
+	else
+		label=`lsblk --raw --output label --noheadings "${dst_device[p]}"`
 		if [ "$label" != "" ]
 		then
 			dst_label[p]="$label"
 		fi
-	elif ((p == ext_num))
-	then
-		dst_fs_type[p]="EXT"
 	fi
 done
 
