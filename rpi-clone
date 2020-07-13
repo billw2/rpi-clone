@@ -546,26 +546,80 @@ print_options()
 	printf "%-23s:\n" "-----------------------"
 	}
 
-ext_label()
+dst_part_label()
 	{
 	pnum=$1
 	fs_type=$2
-	flag=$3
-	label_arg=""
+	label=""
 
 	if [ "$ext_label" != "" ] && [[ "$fs_type" == *"ext"* ]]
 	then
 		rep="${ext_label: -1}"
 		if [ "$rep" == "#" ]
 		then
-			label_arg=${ext_label:: -1}
-			label_arg="$flag $label_arg$pnum"
+			label="${ext_label:: -1}"
 		elif ((pnum == root_part_num))
 		then
-			label_arg="$flag $ext_label"
+			label="$ext_label"
 		fi
 	fi
-	printf -v "${4}" "%s" "$label_arg"
+
+	if [ -z "$label" -a -n "${src_label[$pnum]}" ]
+	then
+		label="${src_label[$pnum]}"
+	fi
+	printf -v "${3}" "%s" "$label"
+	}
+
+mkfs_label()
+	{
+	pnum=$1
+	fs_type=$2
+
+	label_flag=""
+	case "$fs_type" in
+		# This list is probably overcomplete, but might simplify
+		# future additions.
+		vfat|msdos|exfat|fat16|fat32)
+			label_flag=-n
+			;;
+		ext2|ext3|ext4|ntfs|xfs)
+			label_flag=-L
+			;;
+		hfs|hfsplus)
+			label_flag=-v
+			;;
+		reiserfs)
+			label_flag=-l
+			;;
+	esac
+
+
+	label_arg=""
+	dst_part_label "$pnum" "$fs_type" label
+	if [ -n "$label" -a -n "$label_flag" ]
+	then
+		label_arg="$label_flag $label"
+	fi
+	printf -v "${3}" "%s" "$label_arg"
+	}
+
+change_label()
+	{
+	pnum=$1
+	fs_type=$2
+	dev=$3
+
+	dst_part_label "$pnum" "$fs_type" label
+	if [ "$label" != "" ] && [[ "$fs_type" == *"ext"* ]]
+	then
+		echo "     e2label $dev $label"
+		e2label $dev $label
+	elif [ "$label" != "" ] && [[ "$fs_type" == *"fat"* ]]
+	then
+		echo "     fatlabel $dev $label"
+		fatlabel $dev $label
+	fi
 	}
 
 get_src_disk()
@@ -1501,9 +1555,9 @@ Use -U for unattended even if initializing.
 
 		if [ "${src_mounted_dir[p]}" == "/boot" ] && ((p == 1))
 		then
-			ext_label $p "$fs_type" "-L" label
-			printf "  => mkfs -t $mkfs_type $label $dst_dev ..."
-			yes | mkfs -t $mkfs_type $label $dst_dev &>> /tmp/$PGM-output
+			mkfs_label $p "$fs_type" label_opt
+			printf "  => mkfs -t $fs_type $label_opt $dst_dev ..."
+			yes | mkfs -t $mkfs_type $label_opt $dst_dev &>> /tmp/$PGM-output
 			echo ""
 		else
 			if [ "$fs_type" == "swap" ]
@@ -1514,9 +1568,9 @@ Use -U for unattended even if initializing.
 			then
 				if [ "${src_mounted_dir[p]}" != "" ] || ((p == n_image_parts))
 				then
-					ext_label $p $fs_type "-L" label
-					printf "  => mkfs -t $mkfs_type $label $dst_dev ..."
-					yes | mkfs -t $mkfs_type $label $dst_dev &>> /tmp/$PGM-output
+					mkfs_label "$p" "$fs_type" label_opt
+					printf "  => mkfs -t $mkfs_type $label_opt $dst_dev ..."
+					yes | mkfs -t $mkfs_type $label_opt $dst_dev &>> /tmp/$PGM-output
 					echo ""
 					if ((p == n_image_parts))
 					then
@@ -1536,12 +1590,7 @@ Use -U for unattended even if initializing.
 					else
 						echo ""
 					fi
-					ext_label $p $fs_type "" label
-					if [ "$label" != "" ]
-					then
-						echo "     e2label $dst_dev $label"
-						e2label $dst_dev $label
-					fi
+					change_label "$p" "$fs_type" "$dst_dev"
 				fi
 			fi
 		fi
@@ -1663,13 +1712,7 @@ do
 		sync_msg_done=1
 		dst_dev=/dev/${dst_part_base}${p}
 		fs_type=${src_fs_type[$p]}
-		ext_label $p $fs_type "" label
-		if [ "$label" != "" ]
-		then
-			qecho "     e2label $dst_dev $label"
-			e2label $dst_dev $label
-		fi
-
+		change_label "$p" "$fs_type" "$dst_dev"
 		mount_partition ${src_device[p]} $clone_src ""
 		mount_partition $dst_dev $clone "$clone_src"
 		unmount_list="$clone_src $clone"
@@ -1681,12 +1724,7 @@ done
 qprintf "Syncing mounted partitions:\n"
 
 fs_type=${src_fs_type[$root_part_num]}
-ext_label $root_part_num $fs_type "" label
-if [ "$label" != "" ]
-then
-	qecho "     e2label $dst_root_dev $label"
-	e2label $dst_root_dev $label
-fi
+change_label "$root_part_num" "$fs_type" "$dst_root_dev"
 
 mount_partition $dst_root_dev $clone ""
 unmount_list="$clone"
@@ -1709,12 +1747,7 @@ do
 
 		dst_dev=/dev/${dst_part_base}${p}
 		fs_type=${src_fs_type[$p]}
-		ext_label $p $fs_type "" label
-		if [ "$label" != "" ]
-		then
-			qecho "     e2label $dst_dev $label"
-			e2label $dst_dev $label
-		fi
+		change_label "$p" "$fs_type" "$dst_dev"
 
 		mount_partition "$dst_dev" "$dst_dir" "$unmount_list"
 		rsync_file_system "${src_mounted_dir[p]}/" "${dst_dir}" ""
