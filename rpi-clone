@@ -1766,12 +1766,7 @@ fi
 
 rm -f $clone/etc/udev/rules.d/70-persistent-net.rules
 
-dst_root_vol_name=`e2label $dst_root_dev`
-
-if [ "$dst_root_vol_name" = "" ]
-then
-	dst_root_vol_name="no label"
-fi
+dst_root_vol_name=${dst_label[$root_part_num]}
 
 if ((have_grub))
 then
