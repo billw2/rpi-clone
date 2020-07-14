@@ -85,8 +85,6 @@ then
 	apt-get install -y --no-install-recommends $need_packages
 fi
 
-export clone=/mnt/clone
-export clone_src=/mnt/clone-src
 export clone_log=/var/log/$PGM.log
 
 HOSTNAME=`hostname`
@@ -993,14 +991,24 @@ then
 	exit 0
 fi
 
-if [ ! -d $clone ]
+export clone=$(mktemp --tmpdir --directory rpi-clone-dst.XXXXXX)
+export clone_src=$(mktemp --tmpdir --directory rpi-clone-src.XXXXXX)
+
+if ! [ -n "$clone" -a -d "$clone" -a -n "$clone_src" -a -d "$clone_src" ]
 then
-	mkdir $clone
+	echo "Failed to create temporary mount directories"
+	echo "Aborting!"
+	exit 1
 fi
-if [ ! -d $clone_src ]
-then
-	mkdir $clone_src
-fi
+
+# Make sure we cleanup on exit, regardless of how we exit
+cleanup() {
+	umount "$clone" 2> /dev/null
+	umount "$clone_src" 2> /dev/null
+	rmdir "$clone"
+	rmdir "$clone_src"
+}
+trap cleanup EXIT
 
 # dst_mount_flag enumerations:
 live=1
