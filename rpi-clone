@@ -85,9 +85,9 @@ then
 	apt-get install -y --no-install-recommends $need_packages
 fi
 
-clone=/mnt/clone
-clone_src=/mnt/clone-src
-clone_log=/var/log/$PGM.log
+export clone=/mnt/clone
+export clone_src=/mnt/clone-src
+export clone_log=/var/log/$PGM.log
 
 HOSTNAME=`hostname`
 

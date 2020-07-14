@@ -4,11 +4,13 @@
 #    eg:  sudo rpi-clone-setup bozo
 #
 # This script is automatically run by rpi-clone (when it is given -s options)
-# to setup an alternate hostname.  A cloned file system mounted on /mnt/clone
-# is expected unless testing with the -t option.
+# to setup an alternate hostname.  It expects $clone to be set in the
+# environment containing the path to a mounted cloned file system unless
+# testing with the -t option.
 #
 # Or, this script can be run by hand at the end of a clone when rpi-clone
-# pauses with the cloned file systems still mounted on /mnt/clone.
+# pauses with the cloned file systems still mounted (make sure to set
+# the $clone env variable properly, then).
 #
 # Or, run this script by hand with -t to process files in test directories
 # under /tmp/clone-test.  Run -t and look at the files to see if the files
@@ -27,7 +29,7 @@
 
 file_list="etc/hostname etc/hosts"
 
-clone=/mnt/clone
+# $clone is set by caller
 clone_test=/tmp/clone-test
 
 PGM=`basename $0`
@@ -81,9 +83,15 @@ fi
 
 echo -e "\t$newhost\t- target hostname"
 
-if ((!testing)) && [ ! -d /mnt/clone/etc ]
+if ((!testing)) && [ -z "$clone" ]
 then
-	echo "A destination clone file system is not mounted on /mnt/clone"
+	echo "No clone mountpoint was passed in the \$clone variable"
+	echo "Aborting!"
+	exit 0
+fi
+if ((!testing)) && [ ! -d "$clone/etc" ]
+then
+	echo "A destination clone file system is not mounted on $clone"
 	echo "Aborting!"
 	exit 0
 fi
