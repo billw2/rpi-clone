@@ -993,6 +993,15 @@ then
 	exit 0
 fi
 
+if [ ! -d $clone ]
+then
+	mkdir $clone
+fi
+if [ ! -d $clone_src ]
+then
+	mkdir $clone_src
+fi
+
 # dst_mount_flag enumerations:
 live=1
 temp=2
@@ -1247,16 +1256,6 @@ unmount_or_abort "$mounted_dev" \
 
 mounted_dev=$(findmnt /mnt -o source -n)
 unmount_or_abort "$mounted_dev" "$mounted_dev is currently mounted on /mnt."
-
-
-if [ ! -d $clone ]
-then
-	mkdir $clone
-fi
-if [ ! -d $clone_src ]
-then
-	mkdir $clone_src
-fi
 
 # Do not include a dhpys swapfile in rsync.  It regenerates at boot.
 #
