@@ -85,9 +85,7 @@ then
 	apt-get install -y --no-install-recommends $need_packages
 fi
 
-clone=/mnt/clone
-clone_src=/mnt/clone-src
-clone_log=/var/log/$PGM.log
+export clone_log=/var/log/$PGM.log
 
 HOSTNAME=`hostname`
 
@@ -993,6 +991,25 @@ then
 	exit 0
 fi
 
+export clone=$(mktemp --tmpdir --directory rpi-clone-dst.XXXXXX)
+export clone_src=$(mktemp --tmpdir --directory rpi-clone-src.XXXXXX)
+
+if ! [ -n "$clone" -a -d "$clone" -a -n "$clone_src" -a -d "$clone_src" ]
+then
+	echo "Failed to create temporary mount directories"
+	echo "Aborting!"
+	exit 1
+fi
+
+# Make sure we cleanup on exit, regardless of how we exit
+cleanup() {
+	umount "$clone" 2> /dev/null
+	umount "$clone_src" 2> /dev/null
+	rmdir "$clone"
+	rmdir "$clone_src"
+}
+trap cleanup EXIT
+
 # dst_mount_flag enumerations:
 live=1
 temp=2
@@ -1247,16 +1264,6 @@ unmount_or_abort "$mounted_dev" \
 
 mounted_dev=$(findmnt /mnt -o source -n)
 unmount_or_abort "$mounted_dev" "$mounted_dev is currently mounted on /mnt."
-
-
-if [ ! -d $clone ]
-then
-	mkdir $clone
-fi
-if [ ! -d $clone_src ]
-then
-	mkdir $clone_src
-fi
 
 # Do not include a dhpys swapfile in rsync.  It regenerates at boot.
 #
