@@ -2,7 +2,6 @@
 Latest version: 2.0.22
 
 ### Spartronics notes (start)
-
 Taken from [github.com/billw/rpi-clone](https://github.com/billw2/rpi-clone)
 
 This script works to copy the internal SD card to a USB attached
@@ -46,7 +45,6 @@ so don't use one with important data on it).  To start the copy:
 ```
 	sudo rpi-clone sda -f
 ```
-
 ### Spartronics notes (end)
  
 
