@@ -3,7 +3,7 @@ Latest version: 2.0.22
 
 ### Spartronics notes (start)
 
-Taken from [billw/rpi-clone](https://github.com/billw2/rpi-clone)
+Taken from [github.com/billw/rpi-clone](https://github.com/billw2/rpi-clone)
 
 This script works to copy the internal SD card to a USB attached
 SD card writer.  The assumption is that the writer is the only
