@@ -16,34 +16,34 @@ so that the Unix-style line endings are preserved.
 The process for a new install is this:
 + On a machine connected to the internet, clone the Spartronics
 version of the repo with:
-'''
+```
 	git clone https://github.com/Spartronics4915/rpi-clone.git
-'''
+```
 + Write the tar file to the transfer medium - this could be on a 
   Windows box or another Pi.
 + Insert the medium, mount and copyt the tar file with:
-'''
+```
 	sudo mount /dev/sda /mnt
 	cp /mnt/rpi-clone.tar.gz ~
 	sudo umount /mnt
-'''
+```
 + Remove the copy medium
 + Change to the home directory and expand the tar file:
-'''
+```
 	cd
 	tar zxvf rpi-clone.tar.gz
-'''
+```
 + Change to the rpi-clone folder and install the rsync package:
-'''
+```
 	cd rpi-clone
 	sudo dpkg -i rsync_3.1.3-6_armhf.deb
-'''
+```
 + To copy the internal SD card, attach the USB SD writer and insert
 an SD card for the copy (it will be wiped as part of the copy process,
 so don't use one with important data on it).  To start the copy:
-'''
+```
 	sudo rpi-clone sda -f
-'''
+```
 
 ### Spartronics notes (end)
  
