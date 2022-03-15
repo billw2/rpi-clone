@@ -1789,35 +1789,38 @@ qecho ""
 # Fix PARTUUID or device name references in cmdline.txt and fstab
 #
 fstab=${clone}/etc/fstab
-cmdline_txt=${clone}/boot/cmdline.txt
+cmdline_txt=/boot/cmdline.txt
+cmdline_boot=/boot/cmdline.boot
 
-if [ -f $cmdline_txt ]
+if [ -f "${clone}${cmdline_txt}" ]
 then
 	if ((leave_sd_usb_boot && SD_slot_dst))
 	then
 		qecho "Leaving SD to USB boot alone."
-		cp $cmdline_txt ${clone}/boot/cmdline.boot
-		cmdline_txt=${clone}/boot/cmdline.boot
+		cp "${clone}${cmdline_txt}" "${clone}${cmdline_boot}"
+		cmdline_txt=${cmdline_boot}
 	fi
-	if grep -q $src_disk_ID $cmdline_txt
+	if grep -q "$src_disk_ID" "${clone}${cmdline_txt}"
 	then
 		qecho "Editing $cmdline_txt PARTUUID to use $dst_disk_ID"
-		sed -i "s/${src_disk_ID}/${dst_disk_ID}/" "$cmdline_txt"
-	elif [ "${src_fsuuid[root_part_num]}" != "" ] && grep -q "${src_fsuuid[root_part_num]}" "$cmdline_txt"
+		sed -i "s/${src_disk_ID}/${dst_disk_ID}/" "${clone}${cmdline_txt}"
+	elif [ "${src_fsuuid[root_part_num]}" != "" ] && grep -q "${src_fsuuid[root_part_num]}" "${clone}${cmdline_txt}"
 	then
 		new_fsuuid=${dst_fsuuid[root_part_num]}
 		qecho "Editing $cmdline_txt UUID to use $new_fsuuid"
-		sed -i "s/${src_fsuuid[root_part_num]}/${new_fsuuid}/" "$cmdline_txt"
-	elif [ "$edit_fstab_name" != "" ] && grep -q ${src_part_base} $cmdline_txt
+		sed -i "s/${src_fsuuid[root_part_num]}/${new_fsuuid}/" "${clone}${cmdline_txt}"
+	elif [ "$edit_fstab_name" != "" ] && grep -q "${src_part_base}" "${clone}${cmdline_txt}"
 	then
 		qecho "Editing $cmdline_txt references from $src_part_base to $edit_fstab_name"
-		sed -i "s/${src_part_base}/$edit_fstab_name/" "$cmdline_txt"
+		sed -i "s/${src_part_base}/$edit_fstab_name/" "${clone}${cmdline_txt}"
 	fi
 	if ((leave_sd_usb_boot && SD_slot_boot))
 	then
 		qecho "Copying USB cmdline.txt to SD card to set up USB boot."
-		cp /boot/cmdline.txt /boot/cmdline.boot
-		cp $cmdline_txt /boot/cmdline.txt
+		# Note that this leaves out $clone to modify the original SD
+		# card to boot from the clone instead
+		cp "${cmdline_txt}" "${cmdline_boot}"
+		cp "${clone}${cmdline_txt}" "${cmdline_txt}"
 	fi
 fi
 
