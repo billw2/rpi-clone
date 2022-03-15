@@ -801,6 +801,12 @@ do
 	then
 		src_label[p]="$label"
 	fi
+
+	fsuuid=`lsblk --raw --output UUID --noheadings "${src_device[p]}"`
+	if [ "$fsuuid" != "" ]
+	then
+		src_fsuuid[p]="$fsuuid"
+	fi
 done
 
 
@@ -1118,7 +1124,8 @@ then
 		SD_slot_dst=1
 		dst_part_base=${dst_disk}p
 		if    [ "$edit_fstab_name" == "" ] \
-		   && ! grep -q "^PARTUUID=" /etc/fstab
+		   && ! grep -q "^PARTUUID=" /etc/fstab \
+		   && ! grep -q "^UUID=" /etc/fstab
 		then
 			edit_fstab_name=$dst_part_base
 			assumed_fstab_edit=1
@@ -1205,6 +1212,11 @@ do
 		if [ "$label" != "" ]
 		then
 			dst_label[p]="$label"
+		fi
+		fsuuid=`lsblk --raw --output UUID --noheadings "${dst_device[p]}"`
+		if [ "$fsuuid" != "" ]
+		then
+			dst_fsuuid[p]="$fsuuid"
 		fi
 	fi
 done
@@ -1598,8 +1610,19 @@ Use -U for unattended even if initializing.
 						echo ""
 					fi
 					change_label "$p" "$fs_type" "$dst_dev"
+					# TODO: Change uuid in case filesystem uuid is used in fstab?
 				fi
 			fi
+		fi
+
+		# Wait for kernel and udev to process changes (i.e. new
+		# UUIDs and labels)
+		udevadm settle
+		# Update UUID, just in case it changed
+		fsuuid=`lsblk --raw --output UUID --noheadings "$dst_dev"`
+		if [ "$fsuuid" != "" ]
+		then
+			dst_fsuuid[p]="$fsuuid"
 		fi
 	done
 	ext_label=""
@@ -1780,6 +1803,11 @@ then
 	then
 		qecho "Editing $cmdline_txt PARTUUID to use $dst_disk_ID"
 		sed -i "s/${src_disk_ID}/${dst_disk_ID}/" "$cmdline_txt"
+	elif [ "${src_fsuuid[root_part_num]}" != "" ] && grep -q "${src_fsuuid[root_part_num]}" "$cmdline_txt"
+	then
+		new_fsuuid=${dst_fsuuid[root_part_num]}
+		qecho "Editing $cmdline_txt UUID to use $new_fsuuid"
+		sed -i "s/${src_fsuuid[root_part_num]}/${new_fsuuid}/" "$cmdline_txt"
 	elif [ "$edit_fstab_name" != "" ] && grep -q ${src_part_base} $cmdline_txt
 	then
 		qecho "Editing $cmdline_txt references from $src_part_base to $edit_fstab_name"
@@ -1797,6 +1825,20 @@ if grep -q $src_disk_ID $fstab
 then
 	qecho "Editing $fstab PARTUUID to use $dst_disk_ID"
 	sed -i "s/${src_disk_ID}/${dst_disk_ID}/g" "$fstab"
+elif grep -q ^UUID= $fstab
+then
+	for ((p = 1; p <= n_src_parts; p++))
+	do
+		old_fsuuid=${src_fsuuid[p]}
+		new_fsuuid=${dst_fsuuid[p]}
+		if [ "$old_fsuuid" == "" -o "$new_fsuuid" == "" ] || ! grep -q "$old_fsuuid" "$fstab";
+		then
+			continue
+		fi
+
+		qecho "Editing $fstab partition $p UUID to use $new_fsuuid"
+		sed -i "s/$old_fsuuid/${new_fsuuid}/" "$fstab"
+	done
 elif [ "$edit_fstab_name" != "" ] && grep -q ${src_part_base} $fstab
 then
 	qecho "Editing $fstab references from $src_part_base to $edit_fstab_name"
