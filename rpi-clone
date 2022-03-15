@@ -692,6 +692,9 @@ fi
 #
 src_partition_table=$(parted --script -m "/dev/$src_disk" unit s print | tr -d ';')
 src_fdisk_table=$(fdisk -l /dev/$src_disk | grep "^/dev/")
+# Parted seems to force a partition rescan, which hides fs labels from
+# lsblk output. Wait for kernel/udev to be done processing.
+udevadm settle
 
 tmp=$(df | grep -e "^/dev/$src_disk" -e "^/dev/root" -e "$src_root_dev" \
 			| tr -s " ")
@@ -1138,6 +1141,10 @@ then
 fi
 
 dst_partition_table=$(parted --script -m "/dev/$dst_disk" unit s print | tr -d ';')
+# Parted seems to force a partition rescan, which hides fs labels from
+# lsblk output. Wait for kernel/udev to be done processing.
+udevadm settle
+
 n_dst_parts=$(echo "$dst_partition_table" | tail -n 1 | cut -d ":" -f 1)
 if [ "$n_dst_parts" == "/dev/$dst_disk" ]
 then
