@@ -1792,6 +1792,11 @@ fstab=${clone}/etc/fstab
 cmdline_txt=/boot/cmdline.txt
 cmdline_boot=/boot/cmdline.boot
 if [ ! -f "${clone}${cmdline_txt}" ]; then
+	# Ubuntu
+	cmdline_txt=/boot/firmware/cmdline.txt
+	cmdline_boot=/boot/firmware/cmdline.boot
+fi
+if [ ! -f "${clone}${cmdline_txt}" ]; then
 	cmdline_txt=/boot/armbianEnv.txt
 	cmdline_boot=/boot/armbianEnv.boot
 fi
