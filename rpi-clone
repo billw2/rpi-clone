@@ -690,7 +690,7 @@ fi
 # src_root_dev, if on device other than booted, is not in src_partition_table
 # and src_fdisk_table, but is in src_df_table and src_mount_table
 #
-src_partition_table=$(parted -m "/dev/$src_disk" unit s print | tr -d ';')
+src_partition_table=$(parted --script -m "/dev/$src_disk" unit s print | tr -d ';')
 src_fdisk_table=$(fdisk -l /dev/$src_disk | grep "^/dev/")
 
 tmp=$(df | grep -e "^/dev/$src_disk" -e "^/dev/root" -e "$src_root_dev" \
@@ -1137,7 +1137,7 @@ then
 	exit 1
 fi
 
-dst_partition_table=$(parted -m "/dev/$dst_disk" unit s print | tr -d ';')
+dst_partition_table=$(parted --script -m "/dev/$dst_disk" unit s print | tr -d ';')
 n_dst_parts=$(echo "$dst_partition_table" | tail -n 1 | cut -d ":" -f 1)
 if [ "$n_dst_parts" == "/dev/$dst_disk" ]
 then
