@@ -640,22 +640,24 @@ get_src_disk()
 # Fix PARTUUID/UUID or device name references in cmdline.txt
 fixup_boot_partition()
 	{
-	src_mount=$1
-	dst_mount=$2
+	partition=$1
+	src_mount=$2
+	dst_mount=$3
 
 	# Just try all flavors
 	# Paths are below the /boot directory/mountpoint
-	fixup_cmdline_txt "${src_mount}" "${dst_mount}" /cmdline.txt /cmdline.boot
-	fixup_cmdline_txt "${src_mount}" "${dst_mount}" /armbianEnv.txt /armbianEnv.boot
-	fixup_cmdline_txt "${src_mount}" "${dst_mount}" /firmware/cmdline.txt /firmware/cmdline.boot # Ubuntu
+	fixup_cmdline_txt "${partition}" "${src_mount}" "${dst_mount}" /cmdline.txt /cmdline.boot
+	fixup_cmdline_txt "${partition}" "${src_mount}" "${dst_mount}" /armbianEnv.txt /armbianEnv.boot
+	fixup_cmdline_txt "${partition}" "${src_mount}" "${dst_mount}" /firmware/cmdline.txt /firmware/cmdline.boot # Ubuntu
 	}
 
 fixup_cmdline_txt()
 	{
-	src_mount=$1
-	dst_mount=$2
-	cmdline_txt=$3
-	cmdline_boot=$4
+	partition=$1
+	src_mount=$2
+	dst_mount=$3
+	cmdline_txt=$4
+	cmdline_boot=$5
 
 	if [ -f "${dst_mount}${cmdline_txt}" ]
 	then
@@ -666,7 +668,7 @@ fixup_cmdline_txt()
 			cmdline_txt=${cmdline_boot}
 		fi
 
-		fixup_device_references_in_file "${dst_mount}${cmdline_txt}"
+		fixup_device_references_in_file "${partition}" "${dst_mount}" "${cmdline_txt}"
 
 		if ((leave_sd_usb_boot && SD_slot_boot))
 		then
@@ -680,29 +682,31 @@ fixup_cmdline_txt()
 	}
 
 fixup_device_references_in_file() {
-	file=$1
-	if grep -q $src_disk_ID $file
+	partition=$1
+	dst_mount=$2
+	file=$3
+	if grep -q "${src_disk_ID}" "${dst_mount}${file}"
 	then
-		qecho "Editing $file PARTUUID to use $dst_disk_ID"
-		sed -i "s/${src_disk_ID}/${dst_disk_ID}/g" "$file"
-	elif grep -q UUID= $file
+		qecho "     Editing $partition$file PARTUUID to use $dst_disk_ID"
+		sed -i "s/${src_disk_ID}/${dst_disk_ID}/g" "${dst_mount}${file}"
+	elif grep -q UUID= "${dst_mount}${file}"
 	then
 		for ((p = 1; p <= n_src_parts; p++))
 		do
 			old_fsuuid=${src_fsuuid[p]}
 			new_fsuuid=${dst_fsuuid[p]}
-			if [ "$old_fsuuid" == "" -o "$new_fsuuid" == "" ] || ! grep -q "$old_fsuuid" "$file";
+			if [ "$old_fsuuid" == "" -o "$new_fsuuid" == "" ] || ! grep -q "$old_fsuuid" "${dst_mount}${file}";
 			then
 				continue
 			fi
 
-			qecho "Editing $file partition $p UUID to use $new_fsuuid"
-			sed -i "s/$old_fsuuid/${new_fsuuid}/" "$file"
+			qecho "     Editing $partition$file UUID to use $new_fsuuid for partition $p"
+			sed -i "s/$old_fsuuid/${new_fsuuid}/" "${dst_mount}${file}"
 		done
-	elif [ "$edit_fstab_name" != "" ] && grep -q ${src_part_base} $file
+	elif [ "$edit_fstab_name" != "" ] && grep -q ${src_part_base} "${dst_mount}${file}"
 	then
-		qecho "Editing $file references from $src_part_base to $edit_fstab_name"
-		sed -i "s/${src_part_base}/${edit_fstab_name}/" "$file"
+		qecho "     Editing $partition$file references from $src_part_base to $edit_fstab_name"
+		sed -i "s/${src_part_base}/${edit_fstab_name}/" "${dst_mount}${file}"
 	fi
 }
 
@@ -1856,8 +1860,8 @@ do
 done
 qecho ""
 
-fixup_boot_partition /boot "${clone}/boot"
-fixup_device_references_in_file "${clone}/etc/fstab"
+fixup_boot_partition /boot /boot "${clone}/boot"
+fixup_device_references_in_file "" "${clone}" /etc/fstab
 
 rm -f $clone/etc/udev/rules.d/70-persistent-net.rules
 
