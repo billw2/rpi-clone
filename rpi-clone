@@ -1786,77 +1786,88 @@ do
 done
 qecho ""
 
-# Fix PARTUUID or device name references in cmdline.txt and fstab
-#
-fstab=${clone}/etc/fstab
-cmdline_txt=/boot/cmdline.txt
-cmdline_boot=/boot/cmdline.boot
-if [ ! -f "${clone}${cmdline_txt}" ]; then
-	# Ubuntu
-	cmdline_txt=/boot/firmware/cmdline.txt
-	cmdline_boot=/boot/firmware/cmdline.boot
-fi
-if [ ! -f "${clone}${cmdline_txt}" ]; then
-	cmdline_txt=/boot/armbianEnv.txt
-	cmdline_boot=/boot/armbianEnv.boot
-fi
+# Fix PARTUUID/UUID or device name references in cmdline.txt
+fixup_boot_partition()
+	{
+	src_mount=$1
+	dst_mount=$2
 
-if [ -f "${clone}${cmdline_txt}" ]
-then
-	if ((leave_sd_usb_boot && SD_slot_dst))
-	then
-		qecho "Leaving SD to USB boot alone."
-		cp "${clone}${cmdline_txt}" "${clone}${cmdline_boot}"
-		cmdline_txt=${cmdline_boot}
-	fi
-	if grep -q "$src_disk_ID" "${clone}${cmdline_txt}"
-	then
-		qecho "Editing $cmdline_txt PARTUUID to use $dst_disk_ID"
-		sed -i "s/${src_disk_ID}/${dst_disk_ID}/" "${clone}${cmdline_txt}"
-	elif [ "${src_fsuuid[root_part_num]}" != "" ] && grep -q "${src_fsuuid[root_part_num]}" "${clone}${cmdline_txt}"
-	then
-		new_fsuuid=${dst_fsuuid[root_part_num]}
-		qecho "Editing $cmdline_txt UUID to use $new_fsuuid"
-		sed -i "s/${src_fsuuid[root_part_num]}/${new_fsuuid}/" "${clone}${cmdline_txt}"
-	elif [ "$edit_fstab_name" != "" ] && grep -q "${src_part_base}" "${clone}${cmdline_txt}"
-	then
-		qecho "Editing $cmdline_txt references from $src_part_base to $edit_fstab_name"
-		sed -i "s/${src_part_base}/$edit_fstab_name/" "${clone}${cmdline_txt}"
-	fi
-	if ((leave_sd_usb_boot && SD_slot_boot))
-	then
-		qecho "Copying USB cmdline.txt to SD card to set up USB boot."
-		# Note that this leaves out $clone to modify the original SD
-		# card to boot from the clone instead
-		cp "${cmdline_txt}" "${cmdline_boot}"
-		cp "${clone}${cmdline_txt}" "${cmdline_txt}"
-	fi
-fi
+	# Just try all flavors
+	# Paths are below the /boot directory/mountpoint
+	fixup_cmdline_txt "${src_mount}" "${dst_mount}" /cmdline.txt /cmdline.boot
+	fixup_cmdline_txt "${src_mount}" "${dst_mount}" /armbianEnv.txt /armbianEnv.boot
+	fixup_cmdline_txt "${src_mount}" "${dst_mount}" /firmware/cmdline.txt /firmware/cmdline.boot # Ubuntu
+	}
 
-if grep -q $src_disk_ID $fstab
-then
-	qecho "Editing $fstab PARTUUID to use $dst_disk_ID"
-	sed -i "s/${src_disk_ID}/${dst_disk_ID}/g" "$fstab"
-elif grep -q ^UUID= $fstab
-then
-	for ((p = 1; p <= n_src_parts; p++))
-	do
-		old_fsuuid=${src_fsuuid[p]}
-		new_fsuuid=${dst_fsuuid[p]}
-		if [ "$old_fsuuid" == "" -o "$new_fsuuid" == "" ] || ! grep -q "$old_fsuuid" "$fstab";
+fixup_cmdline_txt()
+	{
+	src_mount=$1
+	dst_mount=$2
+	cmdline_txt=$3
+	cmdline_boot=$4
+
+	if [ -f "${dst_mount}${cmdline_txt}" ]
+	then
+		if ((leave_sd_usb_boot && SD_slot_dst))
 		then
-			continue
+			qecho "Leaving SD to USB boot alone."
+			cp "${dst_mount}${cmdline_txt}" "${dst_mount}${cmdline_boot}"
+			cmdline_txt=${cmdline_boot}
 		fi
+		if grep -q "$src_disk_ID" "${dst_mount}${cmdline_txt}"
+		then
+			qecho "Editing $cmdline_txt PARTUUID to use $dst_disk_ID"
+			sed -i "s/${src_disk_ID}/${dst_disk_ID}/" "${dst_mount}${cmdline_txt}"
+		elif [ "${src_fsuuid[root_part_num]}" != "" ] && grep -q "${src_fsuuid[root_part_num]}" "${dst_mount}${cmdline_txt}"
+		then
+			new_fsuuid=${dst_fsuuid[root_part_num]}
+			qecho "Editing $cmdline_txt UUID to use $new_fsuuid"
+			sed -i "s/${src_fsuuid[root_part_num]}/${new_fsuuid}/" "${dst_mount}${cmdline_txt}"
+		elif [ "$edit_fstab_name" != "" ] && grep -q "${src_part_base}" "${dst_mount}${cmdline_txt}"
+		then
+			qecho "Editing $cmdline_txt references from $src_part_base to $edit_fstab_name"
+			sed -i "s/${src_part_base}/$edit_fstab_name/" "${dst_mount}${cmdline_txt}"
+		fi
+		if ((leave_sd_usb_boot && SD_slot_boot))
+		then
+			qecho "Copying USB cmdline.txt to SD card to set up USB boot."
+			# Note that this leaves out $clone to modify the original SD
+			# card to boot from the clone instead
+			cp "${src_mount}${cmdline_txt}" "${src_mount}${cmdline_boot}"
+			cp "${dst_mount}${cmdline_txt}" "${src_mount}${cmdline_txt}"
+		fi
+	fi
+	}
 
-		qecho "Editing $fstab partition $p UUID to use $new_fsuuid"
-		sed -i "s/$old_fsuuid/${new_fsuuid}/" "$fstab"
-	done
-elif [ "$edit_fstab_name" != "" ] && grep -q ${src_part_base} $fstab
-then
-	qecho "Editing $fstab references from $src_part_base to $edit_fstab_name"
-	sed -i "s/${src_part_base}/${edit_fstab_name}/" "$fstab"
-fi
+fixup_device_references_in_file() {
+	file=$1
+	if grep -q $src_disk_ID $file
+	then
+		qecho "Editing $file PARTUUID to use $dst_disk_ID"
+		sed -i "s/${src_disk_ID}/${dst_disk_ID}/g" "$file"
+	elif grep -q ^UUID= $file
+	then
+		for ((p = 1; p <= n_src_parts; p++))
+		do
+			old_fsuuid=${src_fsuuid[p]}
+			new_fsuuid=${dst_fsuuid[p]}
+			if [ "$old_fsuuid" == "" -o "$new_fsuuid" == "" ] || ! grep -q "$old_fsuuid" "$file";
+			then
+				continue
+			fi
 
+			qecho "Editing $file partition $p UUID to use $new_fsuuid"
+			sed -i "s/$old_fsuuid/${new_fsuuid}/" "$file"
+		done
+	elif [ "$edit_fstab_name" != "" ] && grep -q ${src_part_base} $file
+	then
+		qecho "Editing $file references from $src_part_base to $edit_fstab_name"
+		sed -i "s/${src_part_base}/${edit_fstab_name}/" "$file"
+	fi
+}
+
+fixup_boot_partition /boot "${clone}/boot"
+fixup_device_references_in_file "${clone}/etc/fstab"
 
 rm -f $clone/etc/udev/rules.d/70-persistent-net.rules
 
