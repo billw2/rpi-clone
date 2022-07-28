@@ -1821,6 +1821,11 @@ do
 		mount_partition $dst_dev $clone "$clone_src"
 		unmount_list="$clone_src $clone"
 		rsync_file_system "${clone_src}/" "${clone}" ""
+
+		# This partition *might* be a boot or root partition, so try fixups for both
+		fixup_boot_partition "partition $p " "${clone_src}" "${clone}"
+		fixup_device_references_in_file "partition $p " "${clone}" /etc/fstab
+
 		unmount_list "$unmount_list"
 	fi
 done
