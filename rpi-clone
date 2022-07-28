@@ -665,20 +665,9 @@ fixup_cmdline_txt()
 			cp "${dst_mount}${cmdline_txt}" "${dst_mount}${cmdline_boot}"
 			cmdline_txt=${cmdline_boot}
 		fi
-		if grep -q "$src_disk_ID" "${dst_mount}${cmdline_txt}"
-		then
-			qecho "Editing $cmdline_txt PARTUUID to use $dst_disk_ID"
-			sed -i "s/${src_disk_ID}/${dst_disk_ID}/" "${dst_mount}${cmdline_txt}"
-		elif [ "${src_fsuuid[root_part_num]}" != "" ] && grep -q "${src_fsuuid[root_part_num]}" "${dst_mount}${cmdline_txt}"
-		then
-			new_fsuuid=${dst_fsuuid[root_part_num]}
-			qecho "Editing $cmdline_txt UUID to use $new_fsuuid"
-			sed -i "s/${src_fsuuid[root_part_num]}/${new_fsuuid}/" "${dst_mount}${cmdline_txt}"
-		elif [ "$edit_fstab_name" != "" ] && grep -q "${src_part_base}" "${dst_mount}${cmdline_txt}"
-		then
-			qecho "Editing $cmdline_txt references from $src_part_base to $edit_fstab_name"
-			sed -i "s/${src_part_base}/$edit_fstab_name/" "${dst_mount}${cmdline_txt}"
-		fi
+
+		fixup_device_references_in_file "${dst_mount}${cmdline_txt}"
+
 		if ((leave_sd_usb_boot && SD_slot_boot))
 		then
 			qecho "Copying USB cmdline.txt to SD card to set up USB boot."
@@ -696,7 +685,7 @@ fixup_device_references_in_file() {
 	then
 		qecho "Editing $file PARTUUID to use $dst_disk_ID"
 		sed -i "s/${src_disk_ID}/${dst_disk_ID}/g" "$file"
-	elif grep -q ^UUID= $file
+	elif grep -q UUID= $file
 	then
 		for ((p = 1; p <= n_src_parts; p++))
 		do
