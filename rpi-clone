@@ -681,6 +681,15 @@ fixup_cmdline_txt()
 	fi
 	}
 
+fixup_root_partition()
+	{
+	partition=$1
+	src_mount=$2
+	dst_mount=$3
+
+	fixup_device_references_in_file "${partition}" "${dst_mount}" /etc/fstab
+	}
+
 fixup_device_references_in_file() {
 	partition=$1
 	dst_mount=$2
@@ -1828,7 +1837,7 @@ do
 
 		# This partition *might* be a boot or root partition, so try fixups for both
 		fixup_boot_partition "partition $p " "${clone_src}" "${clone}"
-		fixup_device_references_in_file "partition $p " "${clone}" /etc/fstab
+		fixup_root_partition "partition $p " "${clone_src}" "${clone}"
 
 		unmount_list "$unmount_list"
 	fi
@@ -1870,7 +1879,7 @@ done
 qecho ""
 
 fixup_boot_partition /boot /boot "${clone}/boot"
-fixup_device_references_in_file "" "${clone}" /etc/fstab
+fixup_root_partition "" / "${clone}"
 
 rm -f $clone/etc/udev/rules.d/70-persistent-net.rules
 
