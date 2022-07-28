@@ -685,28 +685,32 @@ fixup_device_references_in_file() {
 	partition=$1
 	dst_mount=$2
 	file=$3
-	if grep -q "${src_disk_ID}" "${dst_mount}${file}"
-	then
-		qecho "     Editing $partition$file PARTUUID to use $dst_disk_ID"
-		sed -i "s/${src_disk_ID}/${dst_disk_ID}/g" "${dst_mount}${file}"
-	elif grep -q UUID= "${dst_mount}${file}"
-	then
-		for ((p = 1; p <= n_src_parts; p++))
-		do
-			old_fsuuid=${src_fsuuid[p]}
-			new_fsuuid=${dst_fsuuid[p]}
-			if [ "$old_fsuuid" == "" -o "$new_fsuuid" == "" ] || ! grep -q "$old_fsuuid" "${dst_mount}${file}";
-			then
-				continue
-			fi
 
-			qecho "     Editing $partition$file UUID to use $new_fsuuid for partition $p"
-			sed -i "s/$old_fsuuid/${new_fsuuid}/" "${dst_mount}${file}"
-		done
-	elif [ "$edit_fstab_name" != "" ] && grep -q ${src_part_base} "${dst_mount}${file}"
+	if [ -f "${dst_mount}${file}" ]
 	then
-		qecho "     Editing $partition$file references from $src_part_base to $edit_fstab_name"
-		sed -i "s/${src_part_base}/${edit_fstab_name}/" "${dst_mount}${file}"
+		if grep -q "${src_disk_ID}" "${dst_mount}${file}"
+		then
+			qecho "     Editing $partition$file PARTUUID to use $dst_disk_ID"
+			sed -i "s/${src_disk_ID}/${dst_disk_ID}/g" "${dst_mount}${file}"
+		elif grep -q UUID= "${dst_mount}${file}"
+		then
+			for ((p = 1; p <= n_src_parts; p++))
+			do
+				old_fsuuid=${src_fsuuid[p]}
+				new_fsuuid=${dst_fsuuid[p]}
+				if [ "$old_fsuuid" == "" -o "$new_fsuuid" == "" ] || ! grep -q "$old_fsuuid" "${dst_mount}${file}";
+				then
+					continue
+				fi
+
+				qecho "     Editing $partition$file UUID to use $new_fsuuid for partition $p"
+				sed -i "s/$old_fsuuid/${new_fsuuid}/" "${dst_mount}${file}"
+			done
+		elif [ "$edit_fstab_name" != "" ] && grep -q ${src_part_base} "${dst_mount}${file}"
+		then
+			qecho "     Editing $partition$file references from $src_part_base to $edit_fstab_name"
+			sed -i "s/${src_part_base}/${edit_fstab_name}/" "${dst_mount}${file}"
+		fi
 	fi
 }
 
