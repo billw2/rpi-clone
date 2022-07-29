@@ -20,6 +20,7 @@ PGM=`basename $0`
 setup_command="$PGM-setup"
 
 rsync_options="--force -rltWDEHXAgoptx"
+rsync_options_fat="--force -rltWDEHXAptx"
 
 if [ `id -u` != 0 ]
 then
@@ -286,14 +287,22 @@ mount_partition()
 
 rsync_file_system()
 	{
-	src_dir="$1"
-	dst_dir="$2"
+	part_num="$1"
+	src_dir="$2"
+	dst_dir="$3"
 
-	qprintf "  => rsync $1 $2 $3 ..."
+	qprintf "  => rsync $1 $2 $3 $4..."
+
+	effective_options=${rsync_options}
+	fstype=${src_fs_type[part_num]}
+	if [[ "$fstype" == *"fat"* ]]
+	then
+		effective_options=${rsync_options_fat}
+	fi
 
 	if [ "$3" == "with-root-excludes" ]
 	then
-		rsync $rsync_options --delete \
+		rsync $effective_options --delete \
 			$exclude_useropt \
 			$exclude_swapfile \
 			--exclude '.gvfs' \
@@ -307,7 +316,7 @@ rsync_file_system()
 		$src_dir \
 		$dst_dir
 	else
-		rsync $rsync_options --delete \
+		rsync $effective_options --delete \
 			$exclude_useropt \
 			--exclude '.gvfs' \
 			--exclude 'lost\+found/*' \
@@ -546,26 +555,80 @@ print_options()
 	printf "%-23s:\n" "-----------------------"
 	}
 
-ext_label()
+dst_part_label()
 	{
 	pnum=$1
 	fs_type=$2
-	flag=$3
-	label_arg=""
+	label=""
 
 	if [ "$ext_label" != "" ] && [[ "$fs_type" == *"ext"* ]]
 	then
 		rep="${ext_label: -1}"
 		if [ "$rep" == "#" ]
 		then
-			label_arg=${ext_label:: -1}
-			label_arg="$flag $label_arg$pnum"
+			label="${ext_label:: -1}"
 		elif ((pnum == root_part_num))
 		then
-			label_arg="$flag $ext_label"
+			label="$ext_label"
 		fi
 	fi
-	printf -v "${4}" "%s" "$label_arg"
+
+	if [ -z "$label" -a -n "${src_label[$pnum]}" ]
+	then
+		label="${src_label[$pnum]}"
+	fi
+	printf -v "${3}" "%s" "$label"
+	}
+
+mkfs_label()
+	{
+	pnum=$1
+	fs_type=$2
+
+	label_flag=""
+	case "$fs_type" in
+		# This list is probably overcomplete, but might simplify
+		# future additions.
+		vfat|msdos|exfat|fat16|fat32)
+			label_flag=-n
+			;;
+		ext2|ext3|ext4|ntfs|xfs)
+			label_flag=-L
+			;;
+		hfs|hfsplus)
+			label_flag=-v
+			;;
+		reiserfs)
+			label_flag=-l
+			;;
+	esac
+
+
+	label_arg=""
+	dst_part_label "$pnum" "$fs_type" label
+	if [ -n "$label" -a -n "$label_flag" ]
+	then
+		label_arg="$label_flag $label"
+	fi
+	printf -v "${3}" "%s" "$label_arg"
+	}
+
+change_label()
+	{
+	pnum=$1
+	fs_type=$2
+	dev=$3
+
+	dst_part_label "$pnum" "$fs_type" label
+	if [ "$label" != "" ] && [[ "$fs_type" == *"ext"* ]]
+	then
+		echo "     e2label $dev $label"
+		e2label $dev $label
+	elif [ "$label" != "" ] && [[ "$fs_type" == *"fat"* ]]
+	then
+		echo "     fatlabel $dev $label"
+		fatlabel $dev $label
+	fi
 	}
 
 get_src_disk()
@@ -582,6 +645,93 @@ get_src_disk()
 	printf -v "${2}" "%s" "$disk"
 	printf -v "${3}" "%s" "$num"
 	}
+
+# Fix PARTUUID/UUID or device name references in cmdline.txt
+fixup_boot_partition()
+	{
+	partition=$1
+	src_mount=$2
+	dst_mount=$3
+
+	# Just try all flavors
+	# Paths are below the /boot directory/mountpoint
+	fixup_cmdline_txt "${partition}" "${src_mount}" "${dst_mount}" /cmdline.txt /cmdline.boot
+	fixup_cmdline_txt "${partition}" "${src_mount}" "${dst_mount}" /armbianEnv.txt /armbianEnv.boot
+	fixup_cmdline_txt "${partition}" "${src_mount}" "${dst_mount}" /firmware/cmdline.txt /firmware/cmdline.boot # Ubuntu
+	}
+
+fixup_cmdline_txt()
+	{
+	partition=$1
+	src_mount=$2
+	dst_mount=$3
+	cmdline_txt=$4
+	cmdline_boot=$5
+
+	if [ -f "${dst_mount}${cmdline_txt}" ]
+	then
+		if ((leave_sd_usb_boot && SD_slot_dst))
+		then
+			qecho "Leaving SD to USB boot alone."
+			cp "${dst_mount}${cmdline_txt}" "${dst_mount}${cmdline_boot}"
+			cmdline_txt=${cmdline_boot}
+		fi
+
+		fixup_device_references_in_file "${partition}" "${dst_mount}" "${cmdline_txt}"
+
+		if ((leave_sd_usb_boot && SD_slot_boot))
+		then
+			qecho "Copying USB cmdline.txt to SD card to set up USB boot."
+			# Note that this leaves out $clone to modify the original SD
+			# card to boot from the clone instead
+			cp "${src_mount}${cmdline_txt}" "${src_mount}${cmdline_boot}"
+			cp "${dst_mount}${cmdline_txt}" "${src_mount}${cmdline_txt}"
+		fi
+	fi
+	}
+
+fixup_root_partition()
+	{
+	partition=$1
+	src_mount=$2
+	dst_mount=$3
+
+	fixup_device_references_in_file "${partition}" "${dst_mount}" /etc/fstab
+	}
+
+fixup_device_references_in_file() {
+	partition=$1
+	dst_mount=$2
+	file=$3
+
+	if [ -f "${dst_mount}${file}" ]
+	then
+		if grep -q "${src_disk_ID}" "${dst_mount}${file}"
+		then
+			qecho "     Editing $partition$file PARTUUID to use $dst_disk_ID"
+			sed -i "s/${src_disk_ID}/${dst_disk_ID}/g" "${dst_mount}${file}"
+		elif grep -q UUID= "${dst_mount}${file}"
+		then
+			for ((p = 1; p <= n_src_parts; p++))
+			do
+				old_fsuuid=${src_fsuuid[p]}
+				new_fsuuid=${dst_fsuuid[p]}
+				if [ "$old_fsuuid" == "" -o "$new_fsuuid" == "" ] || ! grep -q "$old_fsuuid" "${dst_mount}${file}";
+				then
+					continue
+				fi
+
+				qecho "     Editing $partition$file UUID to use $new_fsuuid for partition $p"
+				sed -i "s/$old_fsuuid/${new_fsuuid}/" "${dst_mount}${file}"
+			done
+		elif [ "$edit_fstab_name" != "" ] && grep -q ${src_part_base} "${dst_mount}${file}"
+		then
+			qecho "     Editing $partition$file references from $src_part_base to $edit_fstab_name"
+			sed -i "s/${src_part_base}/${edit_fstab_name}/" "${dst_mount}${file}"
+		fi
+	fi
+}
+
 
 
 # ==== source (booted) disk info and default mount list
@@ -636,8 +786,11 @@ fi
 # src_root_dev, if on device other than booted, is not in src_partition_table
 # and src_fdisk_table, but is in src_df_table and src_mount_table
 #
-src_partition_table=$(parted -m "/dev/$src_disk" unit s print | tr -d ';')
+src_partition_table=$(parted --script -m "/dev/$src_disk" unit s print | tr -d ';')
 src_fdisk_table=$(fdisk -l /dev/$src_disk | grep "^/dev/")
+# Parted seems to force a partition rescan, which hides fs labels from
+# lsblk output. Wait for kernel/udev to be done processing.
+udevadm settle
 
 tmp=$(df | grep -e "^/dev/$src_disk" -e "^/dev/root" -e "$src_root_dev" \
 			| tr -s " ")
@@ -739,13 +892,16 @@ do
 		src_name[p]="${src_mounted_dir[p]}"
 	fi
 
-	if [[ "$part_type" == *"ext"* ]]
+	label=`lsblk --raw --output label --noheadings "${src_device[p]}"`
+	if [ "$label" != "" ]
 	then
-		label=`e2label ${src_device[p]} 2> /dev/null`
-		if [ "$label" != "" ]
-		then
-			src_label[p]="$label"
-		fi
+		src_label[p]="$label"
+	fi
+
+	fsuuid=`lsblk --raw --output UUID --noheadings "${src_device[p]}"`
+	if [ "$fsuuid" != "" ]
+	then
+		src_fsuuid[p]="$fsuuid"
 	fi
 done
 
@@ -1064,7 +1220,8 @@ then
 		SD_slot_dst=1
 		dst_part_base=${dst_disk}p
 		if    [ "$edit_fstab_name" == "" ] \
-		   && ! grep -q "^PARTUUID=" /etc/fstab
+		   && ! grep -q "^PARTUUID=" /etc/fstab \
+		   && ! grep -q "^UUID=" /etc/fstab
 		then
 			edit_fstab_name=$dst_part_base
 			assumed_fstab_edit=1
@@ -1086,7 +1243,11 @@ then
 	exit 1
 fi
 
-dst_partition_table=$(parted -m "/dev/$dst_disk" unit s print | tr -d ';')
+dst_partition_table=$(parted --script -m "/dev/$dst_disk" unit s print | tr -d ';')
+# Parted seems to force a partition rescan, which hides fs labels from
+# lsblk output. Wait for kernel/udev to be done processing.
+udevadm settle
+
 n_dst_parts=$(echo "$dst_partition_table" | tail -n 1 | cut -d ":" -f 1)
 if [ "$n_dst_parts" == "/dev/$dst_disk" ]
 then
@@ -1139,16 +1300,20 @@ do
 	if [[ "$part_type" == *"linux-swap"* ]]
 	then
 		dst_fs_type[p]="swap"
-	elif [[ "$part_type" == *"ext"* ]]
+	elif ((p == ext_num))
 	then
-		label=`e2label ${dst_device[p]} 2> /dev/null`
+		dst_fs_type[p]="EXT"
+	else
+		label=`lsblk --raw --output label --noheadings "${dst_device[p]}"`
 		if [ "$label" != "" ]
 		then
 			dst_label[p]="$label"
 		fi
-	elif ((p == ext_num))
-	then
-		dst_fs_type[p]="EXT"
+		fsuuid=`lsblk --raw --output UUID --noheadings "${dst_device[p]}"`
+		if [ "$fsuuid" != "" ]
+		then
+			dst_fsuuid[p]="$fsuuid"
+		fi
 	fi
 done
 
@@ -1505,9 +1670,9 @@ Use -U for unattended even if initializing.
 
 		if [ "${src_mounted_dir[p]}" == "/boot" ] && ((p == 1))
 		then
-			ext_label $p "$fs_type" "-L" label
-			printf "  => mkfs -t $mkfs_type $label $dst_dev ..."
-			yes | mkfs -t $mkfs_type $label $dst_dev &>> /tmp/$PGM-output
+			mkfs_label $p "$fs_type" label_opt
+			printf "  => mkfs -t $fs_type $label_opt $dst_dev ..."
+			yes | mkfs -t $mkfs_type $label_opt $dst_dev &>> /tmp/$PGM-output
 			echo ""
 		else
 			if [ "$fs_type" == "swap" ]
@@ -1518,9 +1683,9 @@ Use -U for unattended even if initializing.
 			then
 				if [ "${src_mounted_dir[p]}" != "" ] || ((p == n_image_parts))
 				then
-					ext_label $p $fs_type "-L" label
-					printf "  => mkfs -t $mkfs_type $label $dst_dev ..."
-					yes | mkfs -t $mkfs_type $label $dst_dev &>> /tmp/$PGM-output
+					mkfs_label "$p" "$fs_type" label_opt
+					printf "  => mkfs -t $mkfs_type $label_opt $dst_dev ..."
+					yes | mkfs -t $mkfs_type $label_opt $dst_dev &>> /tmp/$PGM-output
 					echo ""
 					if ((p == n_image_parts))
 					then
@@ -1540,14 +1705,20 @@ Use -U for unattended even if initializing.
 					else
 						echo ""
 					fi
-					ext_label $p $fs_type "" label
-					if [ "$label" != "" ]
-					then
-						echo "     e2label $dst_dev $label"
-						e2label $dst_dev $label
-					fi
+					change_label "$p" "$fs_type" "$dst_dev"
+					# TODO: Change uuid in case filesystem uuid is used in fstab?
 				fi
 			fi
+		fi
+
+		# Wait for kernel and udev to process changes (i.e. new
+		# UUIDs and labels)
+		udevadm settle
+		# Update UUID, just in case it changed
+		fsuuid=`lsblk --raw --output UUID --noheadings "$dst_dev"`
+		if [ "$fsuuid" != "" ]
+		then
+			dst_fsuuid[p]="$fsuuid"
 		fi
 	done
 	ext_label=""
@@ -1667,17 +1838,16 @@ do
 		sync_msg_done=1
 		dst_dev=/dev/${dst_part_base}${p}
 		fs_type=${src_fs_type[$p]}
-		ext_label $p $fs_type "" label
-		if [ "$label" != "" ]
-		then
-			qecho "     e2label $dst_dev $label"
-			e2label $dst_dev $label
-		fi
-
+		change_label "$p" "$fs_type" "$dst_dev"
 		mount_partition ${src_device[p]} $clone_src ""
 		mount_partition $dst_dev $clone "$clone_src"
 		unmount_list="$clone_src $clone"
-		rsync_file_system "${clone_src}/" "${clone}" ""
+		rsync_file_system "${p}" "${clone_src}/" "${clone}" ""
+
+		# This partition *might* be a boot or root partition, so try fixups for both
+		fixup_boot_partition "partition $p " "${clone_src}" "${clone}"
+		fixup_root_partition "partition $p " "${clone_src}" "${clone}"
+
 		unmount_list "$unmount_list"
 	fi
 done
@@ -1685,17 +1855,12 @@ done
 qprintf "Syncing mounted partitions:\n"
 
 fs_type=${src_fs_type[$root_part_num]}
-ext_label $root_part_num $fs_type "" label
-if [ "$label" != "" ]
-then
-	qecho "     e2label $dst_root_dev $label"
-	e2label $dst_root_dev $label
-fi
+change_label "$root_part_num" "$fs_type" "$dst_root_dev"
 
 mount_partition $dst_root_dev $clone ""
 unmount_list="$clone"
 
-rsync_file_system "//" "$clone" "with-root-excludes"
+rsync_file_system "$root_part_num" "//" "$clone" "with-root-excludes"
 
 for ((p = 1; p <= n_src_parts; p++))
 do
@@ -1713,69 +1878,21 @@ do
 
 		dst_dev=/dev/${dst_part_base}${p}
 		fs_type=${src_fs_type[$p]}
-		ext_label $p $fs_type "" label
-		if [ "$label" != "" ]
-		then
-			qecho "     e2label $dst_dev $label"
-			e2label $dst_dev $label
-		fi
+		change_label "$p" "$fs_type" "$dst_dev"
 
 		mount_partition "$dst_dev" "$dst_dir" "$unmount_list"
-		rsync_file_system "${src_mounted_dir[p]}/" "${dst_dir}" ""
+		rsync_file_system "${p}" "${src_mounted_dir[p]}/" "${dst_dir}" ""
 		unmount_list="$dst_dir $unmount_list"
 	fi
 done
 qecho ""
 
-# Fix PARTUUID or device name references in cmdline.txt and fstab
-#
-fstab=${clone}/etc/fstab
-cmdline_txt=${clone}/boot/cmdline.txt
-
-if [ -f $cmdline_txt ]
-then
-	if ((leave_sd_usb_boot && SD_slot_dst))
-	then
-		qecho "Leaving SD to USB boot alone."
-		cp $cmdline_txt ${clone}/boot/cmdline.boot
-		cmdline_txt=${clone}/boot/cmdline.boot
-	fi
-	if grep -q $src_disk_ID $cmdline_txt
-	then
-		qecho "Editing $cmdline_txt PARTUUID to use $dst_disk_ID"
-		sed -i "s/${src_disk_ID}/${dst_disk_ID}/" "$cmdline_txt"
-	elif [ "$edit_fstab_name" != "" ] && grep -q ${src_part_base} $cmdline_txt
-	then
-		qecho "Editing $cmdline_txt references from $src_part_base to $edit_fstab_name"
-		sed -i "s/${src_part_base}/$edit_fstab_name/" "$cmdline_txt"
-	fi
-	if ((leave_sd_usb_boot && SD_slot_boot))
-	then
-		qecho "Copying USB cmdline.txt to SD card to set up USB boot."
-		cp /boot/cmdline.txt /boot/cmdline.boot
-		cp $cmdline_txt /boot/cmdline.txt
-	fi
-fi
-
-if grep -q $src_disk_ID $fstab
-then
-	qecho "Editing $fstab PARTUUID to use $dst_disk_ID"
-	sed -i "s/${src_disk_ID}/${dst_disk_ID}/g" "$fstab"
-elif [ "$edit_fstab_name" != "" ] && grep -q ${src_part_base} $fstab
-then
-	qecho "Editing $fstab references from $src_part_base to $edit_fstab_name"
-	sed -i "s/${src_part_base}/${edit_fstab_name}/" "$fstab"
-fi
-
+fixup_boot_partition /boot /boot "${clone}/boot"
+fixup_root_partition "" / "${clone}"
 
 rm -f $clone/etc/udev/rules.d/70-persistent-net.rules
 
-dst_root_vol_name=`e2label $dst_root_dev`
-
-if [ "$dst_root_vol_name" = "" ]
-then
-	dst_root_vol_name="no label"
-fi
+dst_root_vol_name=${dst_label[$root_part_num]}
 
 if ((have_grub))
 then
