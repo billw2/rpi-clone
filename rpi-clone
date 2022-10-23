@@ -957,6 +957,10 @@ then
 	count=0
 	for ((p = 1; p <= n_src_parts; p++))
 	do
+		if ((!src_exists[p]))
+		then
+			continue
+		fi
 		if grep -q "^/dev/${src_partition[p]}" $fstab_tmp
 		then
 			partuuid=$(lsblk -n -o PARTUUID /dev/${src_partition[p]})
