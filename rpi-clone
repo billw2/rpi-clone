@@ -573,7 +573,7 @@ get_src_disk()
 	partition=${1#/dev/}
 	disk=${partition:: -1}
 	num="${partition: -1}"
-	if [[ $disk == *"mmcblk"* ]]
+	if [[ $disk == *"mmcblk"* || $disk == *"nvme"* ]]
 	then
 		SD_slot_boot=1
 		disk=${disk:0:7}
@@ -1059,7 +1059,7 @@ dst_part_base=$dst_disk
 
 if [[ ${chk_disk: -1} =~ ^[0-9]$ ]]
 then
-	if [[ $dst_disk == *"mmcblk"* ]]
+	if [[ $dst_disk == *"mmcblk"* || $dst_disk == *"nvme"* ]]
 	then
 		SD_slot_dst=1
 		dst_part_base=${dst_disk}p
