@@ -27,18 +27,20 @@ then
     exit 1
 fi
 
-raspbian=0
-raspbian_buster=0
-if [ -f /etc/os-release ]
+rpios=0
+rpios_recent=0
+if [ -f /etc/os-release ] && [ -f /proc/device-tree/model ]
 then
 	pretty=`cat /etc/os-release | grep PRETTY`
-	if [[ "$pretty" == *"Raspbian"* ]]
+	osversion=`cat /etc/os-release | grep VERSION_ID | cut -d'"' -f2`
+	model=`tr -d '\0' < /proc/device-tree/model`
+	if [[ "$pretty" == *"Raspbian"* || ("$model" == *"Raspberry"* && "$pretty" == *"Debian"*) ]]
 	then
-		raspbian=1
+		rpios=1
 	fi
-	if ((raspbian)) && [[ "$pretty" == *"buster"* ]]
+	if ((rpios)) && ((osversion >= 10))
 	then
-		raspbian_buster=1
+		rpios_recent=1
 	fi
 fi
 
@@ -224,7 +226,7 @@ qecho()
     	echo "$@"
     fi
 	}
-	
+
 qprintf()
 	{
     if ((!quiet))
@@ -1320,7 +1322,7 @@ Use -U for unattended even if initializing.
 		then
 			printf "%-22s : %s\n" " " \
 						"Possible options:"
-			if ((raspbian))
+			if ((rpios))
 			then
 				printf "%-22s : %s\n" " " \
 						"    Use -f2 to force a two partition initialize clone."
@@ -1338,14 +1340,14 @@ Use -U for unattended even if initializing.
 
 	readable_MiB $((last_part_sectors + 7812)) "512" image_space_readable
 
-	echo "== Initialize: IMAGE partition table - $reason ==" 
+	echo "== Initialize: IMAGE partition table - $reason =="
 	print_image_actions
 	print_options
 
 	printf "%-22s : %s\n" "** WARNING **" \
 			"All destination disk $dst_disk data will be overwritten!"
 
-	if ((raspbian_buster && p1_size_new == 0 && src_size_sectors[1] < 400000))
+	if ((rpios_recent && p1_size_new == 0 && src_size_sectors[1] < 400000))
 	then
 		printf "%-22s : %s\n" "** WARNING **" \
 			"Your source /boot partition is smaller than the"
@@ -1530,7 +1532,7 @@ Use -U for unattended even if initializing.
 						else
 							src_sync_part[p]=1
 						fi
-					fi					
+					fi
 				else
 					printf "  => dd if=${src_device[$p]} of=$dst_dev bs=1M ..."
 					dd if=${src_device[$p]} of=$dst_dev bs=1M &>> /tmp/$PGM-output
@@ -1606,7 +1608,7 @@ else
 		exit 1
 	fi
 
-	if ((raspbian_buster && dst_size_sectors[1] < 500000))
+	if ((rpios_recent && dst_size_sectors[1] < 500000))
 	then
 		qprintf "%-22s : %s\n" "** WARNING **" \
 			"Your destination /boot partition is smaller than the"
@@ -1814,7 +1816,7 @@ qprintf "   Start - %s    End - %s    Elapsed Time - %d:%02d\n" \
 if ((!unattended))
 then
 	echo -n $"
-Cloned partitions are mounted on $clone for inspection or customizing. 
+Cloned partitions are mounted on $clone for inspection or customizing.
 
 Hit Enter when ready to unmount the /dev/$dst_disk partitions ..."
 
