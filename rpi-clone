@@ -29,17 +29,13 @@ fi
 
 rpios=0
 rpios_recent=0
-if [ -f /etc/os-release ] && [ -f /proc/device-tree/model ]
+if [ -f /etc/os-release ]
 then
-	pretty=`cat /etc/os-release | grep PRETTY`
 	osversion=`cat /etc/os-release | grep VERSION_ID | cut -d'"' -f2`
-	model=`tr -d '\0' < /proc/device-tree/model`
-	if [[ "$pretty" == *"Raspbian"* || ("$model" == *"Raspberry"* && "$pretty" == *"Debian"*) ]]
-	then
+	if [[ -e /etc/rpi-issue ]]; then
 		rpios=1
 	fi
-	if ((rpios)) && ((osversion >= 10))
-	then
+	if ((rpios)) && ((osversion >= 10)); then
 		rpios_recent=1
 	fi
 fi
