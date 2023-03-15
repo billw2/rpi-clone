@@ -29,13 +29,12 @@ fi
 
 rpios=0
 rpios_recent=0
-if [ -f /etc/os-release ]
-then
-	osversion=`cat /etc/os-release | grep VERSION_ID | cut -d'"' -f2`
+if [ -f /etc/os-release ]; then
 	if [[ -e /etc/rpi-issue ]]; then
 		rpios=1
 	fi
-	if ((rpios)) && ((osversion >= 10)); then
+	pretty="$(cat /etc/os-release | grep PRETTY)"
+	if ((rpios)) && [[ ! "$pretty" =~ wheezy|jessie|stretch ]]; then
 		rpios_recent=1
 	fi
 fi
