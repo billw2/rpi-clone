@@ -224,7 +224,7 @@ qecho()
     	echo "$@"
     fi
 	}
-	
+
 qprintf()
 	{
     if ((!quiet))
@@ -971,7 +971,7 @@ then
 		cp $fstab_tmp $fstab
 		printf "Your original fstab is backed up to $fstab_save\n"
 
-		cmdline_txt=/boot/cmdline.txt
+		cmdline_txt=$(realpath /boot/cmdline.txt)
 		cmdline_save=$cmdline_txt.${PGM}-save
 		if [ -f $cmdline_txt ] && grep -q "$src_root_dev" $cmdline_txt
 		then
@@ -1338,7 +1338,7 @@ Use -U for unattended even if initializing.
 
 	readable_MiB $((last_part_sectors + 7812)) "512" image_space_readable
 
-	echo "== Initialize: IMAGE partition table - $reason ==" 
+	echo "== Initialize: IMAGE partition table - $reason =="
 	print_image_actions
 	print_options
 
@@ -1530,7 +1530,7 @@ Use -U for unattended even if initializing.
 						else
 							src_sync_part[p]=1
 						fi
-					fi					
+					fi
 				else
 					printf "  => dd if=${src_device[$p]} of=$dst_dev bs=1M ..."
 					dd if=${src_device[$p]} of=$dst_dev bs=1M &>> /tmp/$PGM-output
@@ -1730,7 +1730,7 @@ qecho ""
 # Fix PARTUUID or device name references in cmdline.txt and fstab
 #
 fstab=${clone}/etc/fstab
-cmdline_txt=${clone}/boot/cmdline.txt
+cmdline_txt=$(realpath ${clone}/boot/cmdline.txt)
 
 if [ -f $cmdline_txt ]
 then
@@ -1814,7 +1814,7 @@ qprintf "   Start - %s    End - %s    Elapsed Time - %d:%02d\n" \
 if ((!unattended))
 then
 	echo -n $"
-Cloned partitions are mounted on $clone for inspection or customizing. 
+Cloned partitions are mounted on $clone for inspection or customizing.
 
 Hit Enter when ready to unmount the /dev/$dst_disk partitions ..."
 
