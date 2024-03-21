@@ -1071,6 +1071,9 @@ then
 		else
 			assumed_fstab_edit=0
 		fi
+	elif [[ $dst_disk == *"loop"* ]]
+	then
+		dst_part_base=${dst_disk}p
 	else
 		qecho $"
   Target disk $dst_disk ends with a digit so may be a partition.
