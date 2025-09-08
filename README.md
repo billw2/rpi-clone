@@ -1,5 +1,18 @@
-## rpi-clone
-Latest version: 2.0.22
+## rpi-clone - Actively Maintained Fork
+Latest version: 2.0.23
+
+> **🔧 This is an actively maintained fork** of the original rpi-clone by billw2. The original repository hasn't been updated since 2020, leaving critical compatibility issues unresolved. This fork includes essential fixes for modern Raspberry Pi OS and ongoing maintenance.
+
+### Key Improvements in This Fork:
+- ✅ **Fixed boot partition detection** for modern Raspberry Pi OS (Bookworm/2024+) that uses `/boot/firmware`
+- ✅ **Backward compatible** with older systems using `/boot`
+- ✅ **Actively maintained** with bug fixes and compatibility updates
+- ✅ **Responsive to issues** and pull requests
+
+### Why Use This Fork?
+The original rpi-clone fails on modern Raspberry Pi OS systems because the boot partition location changed from `/boot` to `/boot/firmware`. This results in cloned SD cards that won't boot. This fork fixes that critical issue and maintains compatibility with both old and new systems.
+
+---
 
 Version 2 is a complete rewrite with improved capability over
 the original.  See the examples below.
@@ -45,7 +58,7 @@ only Debian packages with apt-get.
 
 #### On a Raspberry Pi:
 ```
-	$ git clone https://github.com/billw2/rpi-clone.git 
+	$ git clone https://github.com/KenAdamson/rpi-clone.git 
 	$ cd rpi-clone
 	$ sudo cp rpi-clone rpi-clone-setup /usr/local/sbin
 ```
@@ -66,7 +79,7 @@ add them to the rpi-clone-setup script.
   To install on another OS, rpi-clone may be renamed to suit.  For example,
   on my Debian desktop I rename:
 ```
-	$ git clone https://github.com/billw2/rpi-clone.git 
+	$ git clone https://github.com/KenAdamson/rpi-clone.git 
 	$ cd rpi-clone
 	$ sudo cp rpi-clone /usr/local/sbin/sys-clone
 	$ sudo cp rpi-clone-setup /usr/local/sbin/sys-clone-setup

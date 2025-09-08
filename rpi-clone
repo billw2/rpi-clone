@@ -8,7 +8,7 @@
 #    https://github.com/billw2/rpi-clone
 
 
-version=2.0.22
+version=2.0.23
 
 # setup trusted paths for dependancies (like rsync, grub, fdisk, etc)
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -586,7 +586,13 @@ get_src_disk()
 
 # ==== source (booted) disk info and default mount list
 #
-src_boot_dev=`findmnt /boot -o source -n | grep "/dev/"`
+# Check for boot partition at /boot/firmware (modern Raspberry Pi OS) first,
+# then fall back to /boot (legacy location) for backward compatibility
+src_boot_dev=`findmnt /boot/firmware -o source -n 2>/dev/null | grep "/dev/"`
+if [ "$src_boot_dev" == "" ]
+then
+	src_boot_dev=`findmnt /boot -o source -n 2>/dev/null | grep "/dev/"`
+fi
 src_root_dev=`findmnt / -o source -n | grep "/dev/"`
 SD_slot_boot=0
 SD_slot_dst=0
@@ -971,7 +977,13 @@ then
 		cp $fstab_tmp $fstab
 		printf "Your original fstab is backed up to $fstab_save\n"
 
-		cmdline_txt=/boot/cmdline.txt
+		# Check for cmdline.txt in both locations
+		if [ -f /boot/firmware/cmdline.txt ]
+		then
+			cmdline_txt=/boot/firmware/cmdline.txt
+		else
+			cmdline_txt=/boot/cmdline.txt
+		fi
 		cmdline_save=$cmdline_txt.${PGM}-save
 		if [ -f $cmdline_txt ] && grep -q "$src_root_dev" $cmdline_txt
 		then
@@ -1503,7 +1515,8 @@ Use -U for unattended even if initializing.
 			mkfs_type=$fs_type
 		fi
 
-		if [ "${src_mounted_dir[p]}" == "/boot" ] && ((p == 1))
+		# Check for both /boot and /boot/firmware mount points for compatibility
+		if ([ "${src_mounted_dir[p]}" == "/boot" ] || [ "${src_mounted_dir[p]}" == "/boot/firmware" ]) && ((p == 1))
 		then
 			ext_label $p "$fs_type" "-L" label
 			printf "  => mkfs -t $mkfs_type $label $dst_dev ..."
@@ -1730,15 +1743,28 @@ qecho ""
 # Fix PARTUUID or device name references in cmdline.txt and fstab
 #
 fstab=${clone}/etc/fstab
-cmdline_txt=${clone}/boot/cmdline.txt
+# Check for cmdline.txt in both /boot/firmware (modern) and /boot (legacy)
+if [ -f ${clone}/boot/firmware/cmdline.txt ]
+then
+	cmdline_txt=${clone}/boot/firmware/cmdline.txt
+else
+	cmdline_txt=${clone}/boot/cmdline.txt
+fi
 
 if [ -f $cmdline_txt ]
 then
 	if ((leave_sd_usb_boot && SD_slot_dst))
 	then
 		qecho "Leaving SD to USB boot alone."
-		cp $cmdline_txt ${clone}/boot/cmdline.boot
-		cmdline_txt=${clone}/boot/cmdline.boot
+		# Use the same directory structure as the source for cmdline.boot
+		if [ -f ${clone}/boot/firmware/cmdline.txt ]
+		then
+			cp $cmdline_txt ${clone}/boot/firmware/cmdline.boot
+			cmdline_txt=${clone}/boot/firmware/cmdline.boot
+		else
+			cp $cmdline_txt ${clone}/boot/cmdline.boot
+			cmdline_txt=${clone}/boot/cmdline.boot
+		fi
 	fi
 	if grep -q $src_disk_ID $cmdline_txt
 	then
@@ -1752,8 +1778,15 @@ then
 	if ((leave_sd_usb_boot && SD_slot_boot))
 	then
 		qecho "Copying USB cmdline.txt to SD card to set up USB boot."
-		cp /boot/cmdline.txt /boot/cmdline.boot
-		cp $cmdline_txt /boot/cmdline.txt
+		# Determine the boot directory path
+		if [ -f /boot/firmware/cmdline.txt ]
+		then
+			boot_dir="/boot/firmware"
+		else
+			boot_dir="/boot"
+		fi
+		cp ${boot_dir}/cmdline.txt ${boot_dir}/cmdline.boot
+		cp $cmdline_txt ${boot_dir}/cmdline.txt
 	fi
 fi
 
