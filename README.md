@@ -54,6 +54,15 @@ rpi-clone or rpi-clone-setup with no args to print usage.
 For the guided terminal UI, run `sudo rpi-clone-tui` (needs `whiptail`,
 preinstalled on Raspberry Pi OS).
 
+#### On Arch Linux (AUR):
+```
+	$ yay -S rpi-clone-tui-git
+```
+This installs `rpi-clone`, `rpi-clone-setup` and `rpi-clone-tui` to
+`/usr/bin` from the maintained fork (includes the terminal UI, `-n`
+dry-run and `--color` support). It conflicts with `rpi-clone-git` —
+pick one.
+
 rpi-clone-setup is for setting the hostname in /etc/hostname and /etc/hosts
 files.  It is run automatically by rpi-clone if -s args are given,
 but before your first clone using a -s option, test run rpi-clone-setup with:
