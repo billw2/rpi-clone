@@ -8,7 +8,7 @@
 #    https://github.com/billw2/rpi-clone
 
 
-version=2.0.22
+version=2.1.0
 
 # setup trusted paths for dependancies (like rsync, grub, fdisk, etc)
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -20,6 +20,55 @@ PGM=`basename $0`
 setup_command="$PGM-setup"
 
 rsync_options="--force -rltWDEHXAgoptx"
+
+# ---- color / UI helpers (no new dependencies, tput only) ----
+# Honor NO_COLOR, --color=never|auto|always, --no-color. Colors are only
+# emitted to a tty so logs and pipes stay clean.
+color_mode="auto"
+if [ "${NO_COLOR:-}" != "" ]
+then
+	color_mode="never"
+fi
+C_RESET=""; C_BOLD=""; C_RED=""; C_GREEN=""; C_YELLOW=""; C_CYAN=""; C_DIM=""
+color_init()
+	{
+	use_color=0
+	case "$color_mode" in
+		always) use_color=1 ;;
+		never)  use_color=0 ;;
+		*)      if [ -t 1 ]; then use_color=1; fi ;;
+	esac
+	if ((use_color)) && command -v tput > /dev/null 2>&1
+	then
+		C_RESET=$(tput sgr0 2>/dev/null || true)
+		C_BOLD=$(tput bold 2>/dev/null || true)
+		C_RED=$(tput setaf 1 2>/dev/null || true)
+		C_GREEN=$(tput setaf 2 2>/dev/null || true)
+		C_YELLOW=$(tput setaf 3 2>/dev/null || true)
+		C_CYAN=$(tput setaf 6 2>/dev/null || true)
+		C_DIM=$(tput dim 2>/dev/null || true)
+	fi
+	}
+color_init
+cinfo()  { printf "%s%s%s\n" "$C_CYAN" "$*" "$C_RESET"; }
+cok()    { printf "%s%s%s\n" "$C_GREEN" "$*" "$C_RESET"; }
+cwarn()  { printf "%s%s%s\n" "$C_YELLOW" "$*" "$C_RESET"; }
+cerr()   { printf "%s%s%s\n" "$C_RED" "$*" "$C_RESET" >&2; }
+
+# Track mounts for cleanup on interrupt. Set by the sync section below.
+unmount_list=""
+cleanup_mounts()
+	{
+	if [ "$unmount_list" != "" ]
+	then
+		# best effort, never fail the trap itself
+		for dir in $unmount_list
+		do
+			umount "$dir" 2>/dev/null || true
+		done
+	fi
+	}
+trap cleanup_mounts INT TERM HUP
 
 if [ `id -u` != 0 ]
 then
@@ -44,16 +93,15 @@ fi
 
 confirm()
 	{
-	if ((unattended || (initialize && Unattended) ))
+	if ((unattended)) || { ((initialize)) 2>/dev/null && ((Unattended)); }
 	then
 		return 0
 	fi
 	printf "\n%s  (yes/no): " "$1"
 	read resp
-	if [ "$resp" = "y" ] || [ "$resp" = "yes" ]
-	then
-		return 0
-	fi
+	case "$resp" in
+		y|Y|yes|Yes|YES) return 0 ;;
+	esac
 	if [ "$2" == "abort" ]
 	then
 		echo -e "Aborting!\n"
@@ -100,7 +148,8 @@ usage: $PGM sdN {-v|--verbose} {-f|--force-initialize} {-f2}
          {-s|--setup host} {-e|--edit-fstab sdX } {-m|--mountdir dir }
          {-L|--label-partitions label} {-l|--leave-sd-usb-boot}
          {-a|--all-sync} {-F|--Force-sync} {-x} {-V|--version}
-         {--convert-fstab-to-partuuid}
+         {--convert-fstab-to-partuuid} {--dry-run|-n}
+         {--color=auto|always|never} {--no-color}
          {--exclude=PATTERN} {--exclude-from=FILE}
 
     -v	    - verbose rsync, list all files as they are copied.
@@ -117,6 +166,10 @@ usage: $PGM sdN {-v|--verbose} {-f|--force-initialize} {-f2}
     -U      - unattended even if initializing. No confirmations asked,
                 but abort only on errors.
     -q      - quiet mode, no output unless errors or initializing. Implies -u.
+    -n      - dry run: print the preflight plan and exit before writing
+                anything to the destination disk.  Also --dry-run.
+    --color - control color output: --color=always|auto|never.
+                --no-color disables colors (also honors NO_COLOR env).
     -s host - add 'host' to args passed to script rpi-clone-setup and run it
                 after cloning but before unmounting partitions. For setting
                 clone disk hostname, but args can be what the script expects.
@@ -173,7 +226,7 @@ readable_MiB()
 		result="   ??"
 	else
 		blk_size=$2
-		val=$((val / 1024 * blk_size))
+		val=$((val * blk_size / 1024))
 
 		if ((val < 1024 * 1024))
 		then
@@ -199,7 +252,7 @@ readable_MB()
 		result="   ??"
 	else
 		blk_size=$2
-		val=$((val / 1000 * blk_size))
+		val=$((val * blk_size / 1000))
 
 		if ((val < 1000 * 1000))
 		then
@@ -296,6 +349,7 @@ rsync_file_system()
 		rsync $rsync_options --delete \
 			$exclude_useropt \
 			$exclude_swapfile \
+			${RPI_CLONE_RSYNC_EXTRA:-} \
 			--exclude '.gvfs' \
 			--exclude '/dev/*' \
 			--exclude '/mnt/clone/*' \
@@ -309,6 +363,7 @@ rsync_file_system()
 	else
 		rsync $rsync_options --delete \
 			$exclude_useropt \
+			${RPI_CLONE_RSYNC_EXTRA:-} \
 			--exclude '.gvfs' \
 			--exclude 'lost\+found/*' \
 		$src_dir \
@@ -328,7 +383,7 @@ print_partitions()
 	readable_MB $src_disk_size "512" src_size_readable
 	readable_MB $dst_disk_size "512" dst_size_readable
 
-	printf "\n%-43s%s" "Booted disk: $src_disk $src_size_readable" \
+	printf "\n${C_BOLD}%-43s%s${C_RESET}" "Booted disk: $src_disk $src_size_readable" \
 				"Destination disk: $dst_disk $dst_size_readable"
 	echo $"
 ---------------------------------------------------------------------------"
@@ -765,6 +820,7 @@ usage_error=0
 unattended=0
 Unattended=0
 quiet=0
+dry_run=0
 custom_sync=0
 leave_sd_usb_boot=0
 convert_to_partuuid=0
@@ -780,7 +836,7 @@ do
 		-u|--unattended)
 			unattended=1
 			;;
-		-U|--Unattended-init)
+		-U|--Unattended|--Unattended-init)
 			unattended=1
 			Unattended=1
 			;;
@@ -788,6 +844,21 @@ do
 			unattended=1
 			quiet=1
 			rsync_options=${rsync_options}q
+			;;
+		-n|--dry-run)
+			dry_run=1
+			;;
+		--no-color)
+			color_mode="never"
+			color_init
+			;;
+		--color=*)
+			color_mode="${1#--color=}"
+			color_init
+			;;
+		--color)
+			color_mode="always"
+			color_init
 			;;
 		--exclude=*|--exclude-from=*)
 			exclude_useropt="${exclude_useropt} $1"
@@ -821,15 +892,15 @@ do
 			shift
 			p1_size_arg=$1
 			p1_size_new=$1
-			if [[ $p1_size_arg =~ ^[0-9MG]+$ ]]
+			if [[ $p1_size_arg =~ ^[0-9]+[MGmg]?$ ]]
 			then
-				if [[ $p1_size_new == *"M" ]]
+				if [[ $p1_size_new == *[Mm] ]]
 				then
-					size=$(echo $p1_size_new | cut -d M -f 1)
+					size=$(echo $p1_size_new | tr -d Mm)
 					p1_size_new=$(($size * 1024 * 1024 / 512))
-				elif [[ $p1_size_new == *"G" ]]
+				elif [[ $p1_size_new == *[Gg] ]]
 				then
-					size=$(echo $p1_size_new | cut -d G -f 1)
+					size=$(echo $p1_size_new | tr -d Gg)
 					p1_size_new=$(($size * 1024 * 1024 * 1024 / 512))
 				fi
 
@@ -882,7 +953,7 @@ do
 			fi
 			custom_sync=1
 			;;
-		-L|--label_partitions)
+		-L|--label-partitions|--label_partitions)
 			shift
 			ext_label=$1
 			;;
@@ -1045,13 +1116,20 @@ then
 	usage
 fi
 
-chk_disk=`cat /proc/partitions | grep -m 1 $dst_disk`
+chk_disk=$(awk -v d="$dst_disk" '$4 == d { print; exit }' /proc/partitions)
 
 if [ "$chk_disk" == "" ]
 then
-	echo $"
-  Cannot find '$dst_disk' in the partition table.  The partition table is:"
+	# Suggest probable whole disks so a typo does not wipe the wrong device.
+	echo ""
+	cerr "  Cannot find '$dst_disk' in the partition table.  The partition table is:"
 	cat /proc/partitions
+	if command -v lsblk > /dev/null 2>&1
+	then
+		echo ""
+		echo "  Candidate destination disks (lsblk):"
+		lsblk -dno NAME,SIZE,MODEL,TRAN 2>/dev/null | awk '{ print "   /dev/" $0 }'
+	fi
 	exit 1
 fi
 
@@ -1211,11 +1289,16 @@ then
 	exit 1
 fi
 
-if ((initialize && p1_size_new > 0 && n_image_parts > 2))
+if ((initialize && p1_size_new > 0))
 then
-	echo "Cannot specify a -p size for partition 1 unless cloning to only 2 partitions."
-	echo "    Use -f2"
-	exit 1
+	# n_image_parts is computed later; estimate it here for validation.
+	_est_image_parts=$((force_2_parts ? 2 : n_src_parts))
+	if ((_est_image_parts > 2))
+	then
+		echo "Cannot specify a -p size for partition 1 unless cloning to only 2 partitions."
+		echo "    Use -f2"
+		exit 1
+	fi
 fi
 
 if ((!force_sync && p1_size_new > dst_disk_size * 8 / 10))
@@ -1383,6 +1466,11 @@ Use -U for unattended even if initializing.
 	if ((abort))
 	then
 		exit 1
+	fi
+	if ((dry_run))
+	then
+		printf "${C_BOLD}DRY RUN${C_RESET} : plan printed above, nothing written to /dev/%s.\n" "$dst_disk"
+		exit 0
 	fi
 	confirm "Initialize and clone to the destination disk ${dst_disk}?" "abort"
 
@@ -1623,6 +1711,11 @@ else
 		qprintf "%-23s:\n" "-----------------------"
 	fi
 
+	if ((dry_run))
+	then
+		printf "${C_BOLD}DRY RUN${C_RESET} : sync plan printed above, nothing written to /dev/%s.\n" "$dst_disk"
+		exit 0
+	fi
 	confirm "Ok to proceed with the clone?" "abort"
 	start_time=`date '+%H:%M:%S'`
 	start_sec=$(date '+%s')

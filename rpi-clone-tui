@@ -1,0 +1,461 @@
+#!/bin/bash
+#
+# rpi-clone-tui - fancy terminal UI wrapper for rpi-clone.
+#
+# Uses whiptail (preinstalled on Raspberry Pi OS) when a TTY is available,
+# otherwise falls back to plain rpi-clone. No new dependencies.
+# Colors in rpi-clone itself need no dependency either (tput only).
+#
+# Usage:
+#   sudo rpi-clone-tui [dst-disk] [--cli ...]
+#   sudo rpi-clone-tui --help
+#
+# Any unrecognized arguments after --cli are passed straight through to
+# rpi-clone for automation:  sudo rpi-clone-tui --cli sda -U
+
+TUI_VERSION=1.1.0
+
+# Locate the real cloner: same directory first, then PATH.
+_here=$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")
+if [ -x "$_here/rpi-clone" ]
+then
+	CLONE_BIN="$_here/rpi-clone"
+else
+	CLONE_BIN=$(command -v rpi-clone || echo "rpi-clone")
+fi
+
+WTITLE="rpi-clone $TUI_VERSION"
+LOG_FILE="/var/log/rpi-clone-tui.log"
+
+usage()
+	{
+	cat <<EOF
+usage: $(basename "$0") [dst-disk] [--cli args...]
+
+Fancy terminal UI for rpi-clone (whiptail based).
+
+  No args          guided picker: disk -> mode -> options -> dry-run -> clone
+  dst-disk         skip the disk picker, start at mode selection
+  --cli ...        skip the UI entirely, exec $CLONE_BIN with the rest
+  -h|--help        this help
+  -V|--version     print version
+
+In automated contexts (no TTY, no whiptail, stdin not a terminal) the
+script execs $CLONE_BIN directly so cron/ssh use keeps working.
+During the clone a progress-bar gauge shows the current rsync file %,
+live CPU/MEM bars with trend sparklines, phase, speed and elapsed time
+(use the "stream" option for a raw scrolling log instead).
+Logs stream to the screen and are appended to $LOG_FILE.
+EOF
+	exit "${1:-0}"
+	}
+
+if [ "$1" = "-h" ] || [ "$1" = "--help" ]
+then
+	usage 0
+fi
+if [ "$1" = "-V" ] || [ "$1" = "--version" ]
+then
+	echo "$(basename "$0") $TUI_VERSION"
+	exit 0
+fi
+
+passthrough_cli=0
+if [ "$1" = "--cli" ]
+then
+	passthrough_cli=1
+	shift
+fi
+
+if [ "$(id -u)" != 0 ]
+then
+	echo "$(basename "$0") needs to be run as root." >&2
+	exit 1
+fi
+
+# ---- non-interactive fallback -------------------------------------------
+# Never trap automation in whiptail: cron, pipes, or explicit --cli just run.
+if ((passthrough_cli)) || [ ! -t 0 ] || [ ! -t 1 ] || ! command -v whiptail > /dev/null 2>&1
+then
+	if ((passthrough_cli))
+	then
+		exec "$CLONE_BIN" "$@"
+	fi
+	if [ ! -t 0 ] || [ ! -t 1 ]
+	then
+		echo "(no TTY detected, running rpi-clone directly)" >&2
+		exec "$CLONE_BIN" "$@"
+	fi
+	if ! command -v whiptail > /dev/null 2>&1
+	then
+		echo "(whiptail not found, running rpi-clone directly)" >&2
+		exec "$CLONE_BIN" "$@"
+	fi
+fi
+
+# ---- helpers -------------------------------------------------------------
+msg()      { whiptail --title "$WTITLE" --msgbox "$1" 12 72; }
+yesno()    { whiptail --title "$WTITLE" --yesno "$1" 12 72; }
+textbox()  { whiptail --title "$WTITLE" --textbox "$1" 22 78; }
+
+booted_disk()
+	{
+	# Prints the booted whole-disk name (sda, mmcblk0, nvme0n1), "" if unknown.
+	local dev disk
+	dev=$(findmnt / -o source -n 2>/dev/null | grep "^/dev/" || true)
+	dev=${dev#/dev/}
+	case "$dev" in
+		mmcblk*p*|nvme*n*p*) disk=${dev%p*}; disk=${disk%p*} ;;
+		*p[0-9])             disk=$(lsblk -npo PKNAME "$dev" 2>/dev/null | xargs basename 2>/dev/null || true)
+		                     [ "$disk" = "" ] && disk=${dev%[0-9]*} ;;
+		*)                   disk=$dev ;;
+	esac
+	# lsblk PKNAME is authoritative when available.
+	if command -v lsblk > /dev/null 2>&1 && [ "$dev" != "" ]
+	then
+		local pk
+		pk=$(lsblk -nro PKNAME "/dev/$dev" 2>/dev/null | head -n 1)
+		if [ "$pk" != "" ]
+		then
+			# PKNAME is empty for whole disks, set for partitions.
+			disk=$(basename "$pk")
+			if [ "$disk" = "" ] || [ "$disk" = " " ]
+			then
+				disk=$dev
+			fi
+		else
+			disk=$dev
+		fi
+	fi
+	printf "%s" "$disk"
+	}
+
+# Lists candidate destination whole disks, one line per disk:
+#   "sda" "32GB Samsung USB (usb)"
+list_disks()
+	{
+	local boot
+	boot=$(booted_disk)
+	lsblk -dnro NAME,SIZE,MODEL,TRAN 2>/dev/null | while read -r name size model tran
+	do
+		[ "$name" = "" ] && continue
+		base=$(basename "$name")
+		[ "$base" = "$boot" ] && continue
+		[ -e "/dev/$base" ] || continue
+		model=${model:-unknown}
+		tran=${tran:-?}
+		printf '%s|%s %s (%s)\n' "$base" "$size" "$model" "$tran"
+	done
+	}
+
+# ---- step 1: destination disk -------------------------------------------
+preset_disk="$1"
+if [ "$preset_disk" != "" ]
+then
+	preset_disk=${preset_disk#/dev/}
+fi
+
+if [ "$preset_disk" = "" ]
+then
+	mapfile -t _disks < <(list_disks)
+	if ((${#_disks[@]} == 0))
+	then
+		msg "No candidate destination disks found.\n\nPlug in the target SD/USB disk and try again.\n(Booted disk is excluded automatically.)"
+		exit 1
+	fi
+	_menu=()
+	first=1
+	for line in "${_disks[@]}"
+	do
+		dev=${line%%|*}
+		desc=${line#*|}
+		if ((first))
+		then
+			_menu+=("$dev" "$desc" ON)
+			first=0
+		else
+			_menu+=("$dev" "$desc" OFF)
+		fi
+	done
+	dst_disk=$(whiptail --title "$WTITLE" --radiolist \
+		"Select the DESTINATION disk.\nALL data on it will be overwritten." \
+		20 78 10 "${_menu[@]}" 3>&1 1>&2 2>&3) || exit 0
+else
+	dst_disk="$preset_disk"
+fi
+
+# Safety: refuse the booted disk even if typed manually.
+if [ "$dst_disk" = "$(booted_disk)" ]
+then
+	msg "Refusing: '$dst_disk' is the booted disk.\nPick a different destination."
+	exit 1
+fi
+
+# ---- step 2: clone mode ---------------------------------------------------
+mode=$(whiptail --title "$WTITLE" --radiolist \
+	"Clone mode for /dev/$dst_disk:" 15 78 3 \
+	"sync" "Sync only (fast, keeps partitions)" ON \
+	"init" "Initialize: re-image partition table (full)" OFF \
+	"init2" "Initialize first 2 partitions only (-f2)" OFF \
+	3>&1 1>&2 2>&3) || exit 0
+
+clone_flags=()
+case "$mode" in
+	init)  clone_flags+=("-f") ;;
+	init2) clone_flags+=("-f2") ;;
+esac
+
+# ---- step 3: options -------------------------------------------------------
+opts=$(whiptail --title "$WTITLE" --checklist \
+	"Extra options (space to toggle):" 19 78 8 \
+	verbose "Verbose rsync listing" OFF \
+	setup "Set clone hostname (-s)" OFF \
+	label "Label ext partitions (-L)" OFF \
+	leave "Keep SD->USB boot (-l)" OFF \
+	allsync "Sync unmounted too (-a)" OFF \
+	force "Force past errors (-F)" OFF \
+	psize "Resize /boot (-p, init only)" OFF \
+	stream "Live log view (no progress bar)" OFF \
+	3>&1 1>&2 2>&3) || exit 0
+
+want_verbose=0; want_setup=0; want_label=0; want_leave=0
+want_allsync=0; want_force=0; want_psize=0; want_stream=0
+for o in $opts
+do
+	o=${o//\"/}
+	case "$o" in
+		verbose) want_verbose=1 ;;
+		setup)   want_setup=1 ;;
+		label)   want_label=1 ;;
+		leave)   want_leave=1 ;;
+		allsync) want_allsync=1 ;;
+		force)   want_force=1 ;;
+		psize)   want_psize=1 ;;
+		stream)  want_stream=1 ;;
+	esac
+done
+
+((want_verbose)) && clone_flags+=("-v")
+((want_leave))   && clone_flags+=("-l")
+((want_allsync)) && clone_flags+=("-a")
+((want_force))   && clone_flags+=("-F")
+
+if ((want_setup))
+then
+	newhost=$(whiptail --title "$WTITLE" --inputbox \
+		"Hostname for the clone (rpi-clone-setup -s):" 10 60 3>&1 1>&2 2>&3) || exit 0
+	if [ "$newhost" = "" ]
+	then
+		msg "Empty hostname, skipping -s."
+	elif [[ ! $newhost =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$ ]]
+	then
+		msg "Invalid hostname '$newhost' (RFC 1123). Skipping -s."
+	else
+		clone_flags+=("-s" "$newhost")
+	fi
+fi
+
+if ((want_label))
+then
+	lbl=$(whiptail --title "$WTITLE" --inputbox \
+		"Ext label (trailing # numbers per partition, eg backup-#):" 10 70 3>&1 1>&2 2>&3) || exit 0
+	[ "$lbl" != "" ] && clone_flags+=("-L" "$lbl")
+fi
+
+if ((want_psize))
+then
+	if [ "$mode" = "sync" ]
+	then
+		msg "-p only applies to initialize modes. Ignoring."
+	else
+		psz=$(whiptail --title "$WTITLE" --inputbox \
+			"New /boot size (eg 256M):" 10 60 "256M" 3>&1 1>&2 2>&3) || exit 0
+		[ "$psz" != "" ] && clone_flags+=("-p" "$psz")
+	fi
+fi
+
+# ---- step 4: dry-run preflight --------------------------------------------
+preflight=$(mktemp /tmp/rpi-clone-preflight.XXXXXX)
+"$CLONE_BIN" "${clone_flags[@]}" --color=never -n "$dst_disk" > "$preflight" 2>&1
+rc=$?
+if ((rc != 0))
+then
+	textbox "$preflight"
+	msg "Preflight failed (exit $rc).\nSee above. Nothing was written."
+	rm -f "$preflight"
+	exit $rc
+fi
+textbox "$preflight"
+rm -f "$preflight"
+
+if ! yesno "Proceed with the clone to /dev/$dst_disk?\n\nALL data on /dev/$dst_disk will be overwritten."
+then
+	msg "Cancelled. Nothing was written."
+	exit 0
+fi
+
+# ---- progress + system monitors (gauge view) -------------------------------
+# Horizontal bar: usage_bar 62  ->  "[############--------] 62%"
+usage_bar()
+	{
+	local pct=${1:-0} width=${2:-20} filled empty i
+	((pct < 0)) && pct=0
+	((pct > 100)) && pct=100
+	filled=$((pct * width / 100))
+	empty=$((width - filled))
+	printf "["
+	for ((i = 0; i < filled; i++)); do printf "#"; done
+	for ((i = 0; i < empty; i++)); do printf "-"; done
+	printf "] %s%%" "$pct"
+	}
+
+# Sparkline history: each sample 0-100 appended, kept to last 30.
+# spark=""; spark=$(spark_add "$spark" 62); spark_draw "$spark"
+spark_add()
+	{
+	local hist=$1 pct=$2 level
+	((pct < 0)) && pct=0
+	((pct > 100)) && pct=100
+	level=$((pct * 8 / 101))   # 0..7
+	((level > 7)) && level=7
+	hist="${hist}${level}"
+	# trim to last 30 samples
+	if ((${#hist} > 30))
+	then
+		hist=${hist: -30}
+	fi
+	printf "%s" "$hist"
+	}
+spark_draw()
+	{
+	local hist=$1 i c chars="▁▂▃▄▅▆▇█"
+	for ((i = 0; i < ${#hist}; i++))
+	do
+		c=${hist:$i:1}
+		printf "%s" "${chars:$c:1}"
+	done
+	}
+
+# Instantaneous CPU % from /proc/stat (two reads ~0.3s apart).
+cpu_pct()
+	{
+	local a b
+	a=$(awk '/^cpu /{print $2+$3+$4+$5+$6+$7+$8, $5+$6}' /proc/stat)
+	sleep 0.3
+	b=$(awk '/^cpu /{print $2+$3+$4+$5+$6+$7+$8, $5+$6}' /proc/stat)
+	local ta ia tb ib
+	read -r ta ia <<< "$a"
+	read -r tb ib <<< "$b"
+	local dt=$((tb - ta)) di=$((ib - ia))
+	if ((dt <= 0))
+	then
+		printf "0"
+		return
+	fi
+	printf "%d" "$(( (dt - di) * 100 / dt ))"
+	}
+
+# Memory % from /proc/meminfo (used = Total - Available).
+mem_pct()
+	{
+	awk '/^MemTotal:/{t=$2} /^MemAvailable:/{a=$2}
+	     END{if(t>0) printf "%d", (t-a)*100/t; else print 0}' /proc/meminfo
+	}
+
+# Latest rsync --info=progress2 percent + speed from the run log.
+# Prints "pct|speed", e.g. "45|32.50MB/s" or "0|" when nothing yet.
+rsync_progress()
+	{
+	local line pct spd
+	line=$(grep -aoE '[0-9]{1,3}% +[0-9.]+[KMGTkmgt]?[Bb]/s' "$1" 2>/dev/null | tail -n 1)
+	if [ "$line" = "" ]
+	then
+		line=$(grep -aoE '[0-9]{1,3}%' "$1" 2>/dev/null | tail -n 1)
+		pct=$(printf "%s" "$line" | tr -dc '0-9')
+		printf "%s|" "${pct:-0}"
+		return
+	fi
+	pct=$(printf "%s" "$line" | grep -oE '[0-9]{1,3}%' | tr -dc '0-9')
+	spd=$(printf "%s" "$line" | grep -oE '[0-9.]+[KMGTkmgt]?[Bb]/s' | head -n 1)
+	printf "%s|%s" "${pct:-0}" "${spd:-}"
+	}
+
+# Current phase: last interesting action line in the log.
+phase_label()
+	{
+	local line
+	line=$(grep -aE 'Initializing|Resizing|Mounting|Syncing|SYNC|IMAGE|MKFS|MKSWAP|Editing|grub-install|Running setup|=> (rsync|dd|mkfs)|Done with clone' \
+		"$1" 2>/dev/null | tail -n 1 | sed 's/^[[:space:]]*//' | cut -c1-60)
+	[ "$line" = "" ] && line="starting up..."
+	printf "%s" "$line"
+	}
+
+# ---- step 5: run ------------------------------------------------------------
+# Default: progress-bar gauge with live CPU/MEM charts fed by a monitor loop
+# that tails the run log. Fallback (--stream option): raw scrolling log view.
+runlog=$(mktemp /tmp/rpi-clone-run.XXXXXX)
+if ((want_stream))
+then
+	{
+		echo "=== rpi-clone-tui run $(date '+%F %H:%M') ==="
+		echo "=== cmd: $CLONE_BIN ${clone_flags[*]} $dst_disk ==="
+		"$CLONE_BIN" "${clone_flags[@]}" --color=never "$dst_disk" 2>&1
+		echo "=== exit: $? ==="
+	} | tee "$runlog" | whiptail --title "$WTITLE : cloning to /dev/$dst_disk" \
+		--programbox "Cloning... (full log: $runlog)" 22 80
+	rc=${PIPESTATUS[1]:-0}
+else
+	export RPI_CLONE_RSYNC_EXTRA="--info=progress2"
+	printf "=== rpi-clone-tui run %s ===\n" "$(date '+%F %H:%M')" > "$runlog"
+	printf "=== cmd: %s %s %s ===\n" "$CLONE_BIN" "${clone_flags[*]}" "$dst_disk" >> "$runlog"
+	"$CLONE_BIN" "${clone_flags[@]}" --color=never "$dst_disk" >> "$runlog" 2>&1 &
+	clone_pid=$!
+	t_start=$SECONDS
+	cpu_hist=""; mem_hist=""
+	pulse=5
+	{
+		while kill -0 $clone_pid 2>/dev/null
+		do
+			prog=$(rsync_progress "$runlog")
+			pct=${prog%%|*}; spd=${prog#*|}
+			[ "$pct" = "" ] && pct=0
+			phase=$(phase_label "$runlog")
+			cpu=$(cpu_pct); mem=$(mem_pct)
+			cpu_hist=$(spark_add "$cpu_hist" "$cpu")
+			mem_hist=$(spark_add "$mem_hist" "$mem")
+			el=$((SECONDS - t_start))
+			# Before rsync reports, pulse the bar so dd/mkfs phases look alive.
+			if ((pct == 0))
+			then
+				pulse=$((pulse + 7)); ((pulse > 90)) && pulse=5
+				show=$pulse
+			else
+				show=$pct
+			fi
+			spark_c=$(spark_draw "$cpu_hist"); spark_m=$(spark_draw "$mem_hist")
+			[ "$spd" != "" ] && spd=" @ $spd"
+			text="Phase : $phase\n"
+			text="${text}File  : ${pct}%${spd}\n"
+			text="${text}CPU   : $(usage_bar "$cpu")  $spark_c\n"
+			text="${text}MEM   : $(usage_bar "$mem")  $spark_m\n"
+			text="${text}Elapsed: $((el / 60))m $((el % 60))s   Log: $runlog"
+			printf "XXX\n%s\n%s\nXXX\n" "$show" "$text"
+		done
+		printf "XXX\n100\nFinishing up...\nXXX\n"
+	} | whiptail --title "$WTITLE : cloning to /dev/$dst_disk (phase % + CPU/MEM)" \
+		--gauge "Starting clone..." 22 80 0
+	wait $clone_pid
+	rc=$?
+	unset RPI_CLONE_RSYNC_EXTRA
+fi
+cat "$runlog" >> "$LOG_FILE"
+echo "$(date '+%F %H:%M') rpi-clone-tui: clone to $dst_disk exit $rc" >> "$LOG_FILE"
+
+if ((rc == 0))
+then
+	msg "Done: clone to /dev/$dst_disk succeeded.\n\nLog: $runlog\nHistory: $LOG_FILE"
+else
+	msg "Clone exited with status $rc.\n\nLog: $runlog\nHistory: $LOG_FILE"
+fi
+rm -f "$runlog"
+exit $rc
