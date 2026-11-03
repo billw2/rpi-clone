@@ -1,5 +1,5 @@
 ## rpi-clone
-Latest version: 2.0.22
+Latest version: 2.1.0
 
 Version 2 is a complete rewrite with improved capability over
 the original.  See the examples below.
@@ -47,10 +47,21 @@ only Debian packages with apt-get.
 ```
 	$ git clone https://github.com/billw2/rpi-clone.git 
 	$ cd rpi-clone
-	$ sudo cp rpi-clone rpi-clone-setup /usr/local/sbin
+	$ sudo cp rpi-clone rpi-clone-setup rpi-clone-tui /usr/local/sbin
 ```
 Make sure /usr/local/sbin is in your $PATH and then run
 rpi-clone or rpi-clone-setup with no args to print usage.
+For the guided terminal UI, run `sudo rpi-clone-tui` (needs `whiptail`,
+preinstalled on Raspberry Pi OS).
+
+#### On Arch Linux (AUR):
+```
+	$ yay -S rpi-clone-tui-git
+```
+This installs `rpi-clone`, `rpi-clone-setup` and `rpi-clone-tui` to
+`/usr/bin` from the maintained fork (includes the terminal UI, `-n`
+dry-run and `--color` support). It conflicts with `rpi-clone-git` —
+pick one.
 
 rpi-clone-setup is for setting the hostname in /etc/hostname and /etc/hosts
 files.  It is run automatically by rpi-clone if -s args are given,
@@ -96,6 +107,35 @@ idea when doing this because the USB disk root partition could boot and then
 mount my internal drive partitions instead of the USB partitions.  But
 I use PARTUUID so there will not be cross mounting.  And I have a couple
 of extra grub menu entries with other root variations just in case.
+
+
+## Terminal UI (rpi-clone-tui)
+`rpi-clone-tui` is a guided wrapper around `rpi-clone` using `whiptail`
+(preinstalled on Raspberry Pi OS, no new dependencies):
+```
+	$ sudo rpi-clone-tui
+```
+It walks through destination-disk picker (booted disk excluded, no more
+manual `sdN` typing), clone-mode and option selection with hostname
+validation, a `--dry-run` preflight preview, a final confirmation, and
+then the clone itself.
+
+During the clone a progress-bar gauge shows the current rsync file
+percent with transfer speed, the active phase, elapsed time, and live
+CPU/MEM usage bars with trend sparklines (from `/proc/stat` and
+`/proc/meminfo`). The bar pulses during `dd`/`mkfs` phases, which report
+no percent. Tick the `stream` option for a raw scrolling log view instead.
+
+Non-interactive contexts (no TTY, missing `whiptail`, cron/ssh) fall back
+to running `rpi-clone` directly, and `rpi-clone-tui --cli ...` passes
+arguments straight through for automation.
+
+Related `rpi-clone` flags added for the UI (also useful standalone):
+`-n|--dry-run` prints the preflight plan and exits before writing anything,
+`--color=auto|always|never` / `--no-color` (plus `NO_COLOR` env) control
+colored output, and `-U|--Unattended` / `-L|--label-partitions` spellings
+now accept both dash and underscore forms. The UI feeds rsync progress via
+the `RPI_CLONE_RSYNC_EXTRA` env passthrough (e.g. `--info=progress2).
 
 
 ## Usage
