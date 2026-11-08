@@ -1,0 +1,70 @@
+#!/bin/bash
+
+# Simple installer for rpi-clone
+#
+# Downloads and installs rpi-clone and rpi-clone-setup into /usr/local/sbin
+#
+# Command to use to install rpi-clone:
+#	   curl https://raw.githubusercontent.com/geerlingguy/rpi-clone/master/install | sudo bash
+#
+# rpi-clone is Copyright (c) 2018-2019 Bill Wilson
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted under the conditions of the BSD LICENSE file at
+# the rpi-clone github source repository:
+#    https://github.com/billw2/rpi-clone
+
+# This updated code is located in a fork of Bill Willsons git repository
+# at https://github.com/geerlingguy/rpi-clone
+
+set -uo pipefail
+
+readonly PACKAGE="rpi-clone"
+readonly DOWNLOAD_REPOSITORY="https://raw.githubusercontent.com/geerlingguy/rpi-clone/master"
+readonly FILES_2_DOWNLOAD"=rpi-clone rpi-clone-setup"
+readonly TMP_DIR=$(mktemp -d)
+readonly DEFAULT_INSTALLATION_DIR="/usr/local/sbin"
+
+pwd=$PWD
+trap "{ cd $pwd; rmdir $TMP_DIR &>/dev/null; }" SIGINT SIGTERM EXIT
+cd $TMP_DIR
+
+installDir="${1:-$DEFAULT_INSTALLATION_DIR}"
+
+if [[ ! -d $installDir ]]; then
+    echo "Installation directory $installDir not found"
+    echo "Pass a valid installation directory as a parameter to $0"
+    exit 1
+fi
+
+echo "Installing $PACKAGE into $installDir ..."
+
+for file in $FILES_2_DOWNLOAD; do
+    echo -n "Downloading $file from $DOWNLOAD_REPOSITORY/$file ... "
+    http_code=$(curl -w "%{http_code}" -L -s $DOWNLOAD_REPOSITORY/$file -o $file)
+    (($?)) && {
+        echo "Curl failed"
+        exit 1
+    }
+    [[ $http_code != 200 ]] && {
+        echo "http request failed with $http_code"
+        exit 1
+    }
+    echo "done"
+    echo -n "Installing $file into $installDir ... "
+    sudo chmod +x $file
+    (($?)) && {
+        echo "chmod failed"
+        exit 1
+    }
+    sudo mv $file $installDir
+    (($?)) && {
+        echo "mv failed"
+        exit 1
+    }
+    echo "done"
+
+done
+
+echo "$PACKAGE installed"
+cd $pwd

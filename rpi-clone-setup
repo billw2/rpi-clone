@@ -30,84 +30,74 @@ file_list="etc/hostname etc/hosts"
 clone=/mnt/clone
 clone_test=/tmp/clone-test
 
-PGM=`basename $0`
+PGM=$(basename $0)
 
-if [ `id -u` != 0 ]
-then
-	echo "You must be root to run $PGM"
-	exit 0
+if [ $(id -u) != 0 ]; then
+    echo "You must be root to run $PGM"
+    exit 0
 fi
 
-function usage
-	{
-	echo "Usage: $PGM hostname  {-t|--test}"
-	echo "   Eg:  $PGM rpi1"
-	echo "   Modify files appropriate to set up for a new host."
-	echo "   Files handled are:"
-	for file in $file_list
-	do
-		echo "        $file"
-	done
-	echo ""
-	echo "If testing (-t flag) files are copied and processed to $clone_test"
-	echo ""
-	exit 0
-	}
+function usage {
+    echo "Usage: $PGM hostname  {-t|--test}"
+    echo "   Eg:  $PGM rpi1"
+    echo "   Modify files appropriate to set up for a new host."
+    echo "   Files handled are:"
+    for file in $file_list; do
+        echo "        $file"
+    done
+    echo ""
+    echo "If testing (-t flag) files are copied and processed to $clone_test"
+    echo ""
+    exit 0
+}
 
 testing=0
-while [ "$1" ]
-do
-	case "$1" in
-		-t|--test)
-			testing=1
-			;;
-		*)
-			if [ "$newhost" != "" ]
-			then
-				echo "Bad args"
-				usage
-			fi
-			newhost=$1
-			;;
-	esac
-	shift
+while [ "$1" ]; do
+    case "$1" in
+        -t | --test)
+            testing=1
+            ;;
+        *)
+            if [ "$newhost" != "" ]; then
+                echo "Bad args"
+                usage
+            fi
+            newhost=$1
+            ;;
+    esac
+    shift
 done
 
-if [ "$newhost" = "" ]
-then
-	echo -e "You must specify a target hostname\n"
-	usage
+if [ "$newhost" = "" ]; then
+    echo -e "You must specify a target hostname\n"
+    usage
 fi
 
 echo -e "\t$newhost\t- target hostname"
 
-if ((!testing)) && [ ! -d /mnt/clone/etc ]
-then
-	echo "A destination clone file system is not mounted on /mnt/clone"
-	echo "Aborting!"
-	exit 0
+if ((!testing)) && [ ! -d /mnt/clone/etc ]; then
+    echo "A destination clone file system is not mounted on /mnt/clone"
+    echo "Aborting!"
+    exit 0
 fi
 
-if ((testing))
-then
-	cd /tmp
-	rm -rf $clone_test
-	clone=$clone_test
+if ((testing)); then
+    cd /tmp
+    rm -rf $clone_test
+    clone=$clone_test
 
-	mkdir -p $clone/etc
+    mkdir -p $clone/etc
 
-	echo "**********************************************"
-	echo "Testing setup: copying files to $clone"
-	for file in $file_list
-	do
-		echo "    cp /$file $clone/$file"
-		cp /$file $clone/$file
-	done
-	echo "This test run will modify those files."
-	echo "**********************************************"
-	echo ""
+    echo "**********************************************"
+    echo "Testing setup: copying files to $clone"
+    for file in $file_list; do
+        echo "    cp /$file $clone/$file"
+        cp /$file $clone/$file
+    done
+    echo "This test run will modify those files."
+    echo "**********************************************"
+    echo ""
 fi
-
 
 ##
 # Set /etc/hostname
@@ -118,27 +108,23 @@ echo $newhost > hostname
 # Read it back to verify.
 #
 echo "$clone/etc/hostname - set new hostname: "
-LINE=`cat hostname`
+LINE=$(cat hostname)
 echo -e "$LINE\n"
-
 
 ##
 # Edit /etc/hosts - edit the sed command if editing fails for your /etc/hosts.
 #
 cd $clone/etc
-sed -i s/"$HOSTNAME"/"$newhost"/ hosts
+sed -i s/"$HOSTNAME"/"$newhost"/g hosts
 #
 # Read it back to verify.
 #
 echo "$clone/etc/hosts - set new hostname \"$newhost\" in lines: "
-LINE=`grep $newhost hosts`
+LINE=$(grep $newhost hosts)
 echo -e "$LINE\n"
-
 
 ##
 # Add more customizations if needed.
 #
 
-
 exit 0
-
